@@ -2,20 +2,26 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Plus, Search, ChevronRight, Settings, LogOut, Bell, Mic } from 'lucide-react'
+import { Plus, Search, ChevronRight, Bell, Mic } from 'lucide-react'
 
 const mockDeals = [
-  { id: 1, name: 'Brisbane ADU Portfolio', location: 'Brisbane, QLD', status: 'green', gm: '28.5%', score: 92, lots: 10, stage: 'DA Approved' },
-  { id: 2, name: 'Gold Coast Mixed Use', location: 'Gold Coast, QLD', status: 'green', gm: '26.1%', score: 87, lots: 24, stage: 'Pre-Sales' },
-  { id: 3, name: 'Branscomb Rd, Claremont', location: 'Claremont, TAS', status: 'amber', gm: '22.2%', score: 78, lots: 37, stage: 'DA Approved' },
-  { id: 4, name: 'Georgetown Expansion', location: 'Georgetown, Guyana', status: 'amber', gm: '19.8%', score: 65, lots: 15, stage: 'Redevelopment' },
-  { id: 5, name: 'Trinidad Roberts', location: 'Port of Spain, TT', status: 'red', gm: '12.4%', score: 38, lots: 8, stage: 'Vacant Land' },
+  { 
+    id: '1', 
+    name: 'Branscomb Rd, Claremont', 
+    location: 'Claremont, TAS', 
+    status: 'amber', 
+    gm: '22.2%', 
+    score: 78, 
+    lots: 37, 
+    stage: 'DA Approved' 
+  },
 ]
 
 export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [voiceActive, setVoiceActive] = useState(false)
+  const [showNotifications, setShowNotifications] = useState(false)
 
   const filteredDeals = mockDeals.filter(deal => {
     const matchesSearch = deal.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -28,7 +34,7 @@ export default function DashboardPage() {
     green: mockDeals.filter(d => d.status === 'green').length,
     amber: mockDeals.filter(d => d.status === 'amber').length,
     red: mockDeals.filter(d => d.status === 'red').length,
-    pipelineValue: '$42M',
+    pipelineValue: '$22.2M',
   }
 
   const getStatusColor = (status: string) => {
@@ -72,9 +78,42 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <button className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
-              <Bell className="w-5 h-5" />
-            </button>
+            <div className="relative">
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors relative"
+              >
+                <Bell className="w-5 h-5" />
+                <span className="absolute top-1 right-1 w-2 h-2 bg-amber-500 rounded-full"></span>
+              </button>
+              
+              {/* Notifications Dropdown */}
+              {showNotifications && (
+                <div className="absolute right-0 top-12 w-80 bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden z-50">
+                  <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                    <span className="font-semibold text-gray-900">Notifications</span>
+                    <button className="text-sm text-amber-600 hover:underline">Mark all read</button>
+                  </div>
+                  <div className="max-h-80 overflow-y-auto">
+                    <div className="px-4 py-3 hover:bg-gray-50 border-b border-gray-100">
+                      <p className="text-sm text-gray-900">Branscomb Rd assessment complete</p>
+                      <p className="text-xs text-gray-500 mt-1">Result: 🟡 AMBER (Score: 78)</p>
+                      <p className="text-xs text-gray-400 mt-1">2 hours ago</p>
+                    </div>
+                    <div className="px-4 py-3 hover:bg-gray-50">
+                      <p className="text-sm text-gray-900">Welcome to DealFindrs!</p>
+                      <p className="text-xs text-gray-500 mt-1">Your 14-day free trial has started</p>
+                      <p className="text-xs text-gray-400 mt-1">1 day ago</p>
+                    </div>
+                  </div>
+                  <div className="px-4 py-3 border-t border-gray-100 bg-gray-50">
+                    <Link href="/settings" className="text-sm text-amber-600 hover:underline">
+                      Notification settings
+                    </Link>
+                  </div>
+                </div>
+              )}
+            </div>
             <Link 
               href="/opportunities/new"
               className="px-4 py-2 bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900 rounded-lg text-sm font-bold hover:shadow-lg transition-all flex items-center gap-2"
@@ -82,12 +121,12 @@ export default function DashboardPage() {
               <Plus className="w-4 h-4" /> New Opportunity
             </Link>
             <div className="w-px h-6 bg-gray-200" />
-            <div className="flex items-center gap-3">
+            <Link href="/settings" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
               <span className="text-sm text-gray-600">Factory2Key</span>
               <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-full flex items-center justify-center text-white font-medium">
                 UJ
               </div>
-            </div>
+            </Link>
           </div>
         </div>
       </nav>
@@ -97,8 +136,13 @@ export default function DashboardPage() {
         <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl p-6 mb-8 text-white">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold mb-2">Welcome back, Uwe! 👋</h1>
-              <p className="text-white/80">You have {stats.amber} opportunities awaiting review and {stats.green} green-lit projects.</p>
+              <h1 className="text-2xl font-bold mb-2">Welcome back! 👋</h1>
+              <p className="text-white/80">
+                {mockDeals.length === 0 
+                  ? "Get started by adding your first property development opportunity."
+                  : `You have ${stats.amber} opportunity awaiting review. Add more to build your pipeline.`
+                }
+              </p>
             </div>
             <Link 
               href="/opportunities/new"
@@ -197,12 +241,31 @@ export default function DashboardPage() {
 
           {filteredDeals.length === 0 && (
             <div className="px-6 py-12 text-center">
-              <p className="text-gray-500">No opportunities found matching your criteria.</p>
+              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Search className="w-8 h-8 text-gray-400" />
+              </div>
+              <p className="text-gray-500 mb-4">
+                {searchQuery || statusFilter !== 'all' 
+                  ? "No opportunities found matching your criteria."
+                  : "No opportunities yet. Add your first one to get started!"
+                }
+              </p>
               <Link 
                 href="/opportunities/new"
-                className="inline-flex items-center gap-2 mt-4 text-amber-600 font-medium hover:underline"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900 rounded-xl font-bold hover:shadow-lg transition-all"
               >
-                <Plus className="w-4 h-4" /> Add your first opportunity
+                <Plus className="w-4 h-4" /> Add Your First Opportunity
+              </Link>
+            </div>
+          )}
+
+          {filteredDeals.length > 0 && (
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100">
+              <Link 
+                href="/opportunities"
+                className="text-amber-600 font-medium hover:underline"
+              >
+                View all opportunities →
               </Link>
             </div>
           )}
@@ -232,16 +295,22 @@ export default function DashboardPage() {
           </div>
           <div className="p-4">
             <p className="text-gray-700 text-sm leading-relaxed">
-              &quot;Hi Uwe! I see you have 2 amber deals that could potentially be moved to green with some negotiation. 
-              Would you like me to summarize the path to green for Branscomb Rd?&quot;
+              "Hi! I can help you add new opportunities, review your pipeline, or explain assessment results. 
+              What would you like to do?"
             </p>
-            <div className="mt-3 flex gap-2">
-              <button className="flex-1 px-3 py-2 bg-gray-100 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
-                🔊 Listen
-              </button>
-              <button className="flex-1 px-3 py-2 bg-violet-100 text-violet-700 rounded-lg text-sm font-medium hover:bg-violet-200 transition-colors">
-                Yes, summarize
-              </button>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link 
+                href="/opportunities/new"
+                className="px-3 py-2 bg-amber-100 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-200 transition-colors"
+              >
+                Add opportunity
+              </Link>
+              <Link 
+                href="/opportunities/1"
+                className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
+              >
+                Review Branscomb
+              </Link>
             </div>
           </div>
         </div>
