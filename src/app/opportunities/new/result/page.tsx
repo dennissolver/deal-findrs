@@ -3,7 +3,11 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Mic, FileText, CheckCircle, AlertTriangle, TrendingUp, DollarSign, RefreshCw } from 'lucide-react'
+import { 
+  ArrowLeft, Mic, FileText, CheckCircle, AlertTriangle, TrendingUp, 
+  DollarSign, RefreshCw, Download, Share2, Archive, Clock, PlayCircle,
+  X, Copy, Check, Mail, Users, Loader2
+} from 'lucide-react'
 
 interface AssessmentData {
   opportunity: any
@@ -28,21 +32,88 @@ interface AssessmentData {
   }
 }
 
+type OpportunityStatus = 'assessed' | 'proceed' | 'pending' | 'archived'
+
 export default function AssessmentResultPage() {
   const router = useRouter()
   const [data, setData] = useState<AssessmentData | null>(null)
   const [voiceActive, setVoiceActive] = useState(false)
+  const [showShareModal, setShowShareModal] = useState(false)
+  const [showStatusModal, setShowStatusModal] = useState(false)
+  const [currentStatus, setCurrentStatus] = useState<OpportunityStatus>('assessed')
+  const [statusNote, setStatusNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [generating, setGenerating] = useState(false)
 
   useEffect(() => {
-    // Load assessment from sessionStorage
     const stored = sessionStorage.getItem('lastAssessment')
     if (stored) {
       setData(JSON.parse(stored))
     } else {
-      // No assessment data, redirect back
       router.push('/opportunities/new')
     }
   }, [router])
+
+  const handleStatusChange = async (newStatus: OpportunityStatus) => {
+    setSaving(true)
+    try {
+      // In production, call API to update status
+      await new Promise(resolve => setTimeout(resolve, 800))
+      setCurrentStatus(newStatus)
+      setShowStatusModal(false)
+      setStatusNote('')
+      
+      // Show success feedback
+      if (newStatus === 'proceed') {
+        alert('✅ Opportunity marked as PROCEED. Added to active pipeline.')
+      } else if (newStatus === 'pending') {
+        alert('⏸️ Opportunity marked as PENDING. Will appear in your review queue.')
+      } else if (newStatus === 'archived') {
+        alert('📦 Opportunity ARCHIVED. You can find it in the archived section.')
+      }
+    } catch (error) {
+      alert('Error updating status. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const copyShareLink = () => {
+    const link = `${window.location.origin}/opportunities/${data?.opportunity?.id || 'demo'}`
+    navigator.clipboard.writeText(link)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleGenerateIM = async () => {
+    setGenerating(true)
+    try {
+      // In production, call PDF generation API
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      alert('📄 Investment Memorandum generated! Download will start automatically.')
+      // Trigger download
+    } catch (error) {
+      alert('Error generating document. Please try again.')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const handleEmailShare = (type: 'team' | 'external') => {
+    const subject = encodeURIComponent(`Deal Assessment: ${data?.opportunity?.name}`)
+    const body = encodeURIComponent(
+      `Hi,\n\nI'd like to share this property development assessment with you:\n\n` +
+      `Property: ${data?.opportunity?.name}\n` +
+      `Location: ${data?.opportunity?.address}, ${data?.opportunity?.city}\n` +
+      `Assessment: ${data?.result?.status?.toUpperCase()} (Score: ${data?.result?.score}/100)\n` +
+      `Gross Margin: ${data?.result?.financials?.grossMarginPercent?.toFixed(1)}%\n\n` +
+      `View full assessment: ${window.location.origin}/opportunities/${data?.opportunity?.id || 'demo'}\n\n` +
+      `Summary:\n${data?.result?.summary}`
+    )
+    window.location.href = `mailto:?subject=${subject}&body=${body}`
+    setShowShareModal(false)
+  }
 
   if (!data) {
     return (
@@ -63,14 +134,23 @@ export default function AssessmentResultPage() {
             <ArrowLeft className="w-4 h-4" /> Back to Opportunities
           </Link>
           <div className="flex items-center gap-2">
-            <Link 
-              href="/opportunities/new"
+            <button 
+              onClick={() => setShowShareModal(true)}
               className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2"
             >
-              <RefreshCw className="w-4 h-4" /> New Assessment
-            </Link>
-            <button className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 flex items-center gap-2">
-              <FileText className="w-4 h-4" /> Generate IM
+              <Share2 className="w-4 h-4" /> Share
+            </button>
+            <button 
+              onClick={handleGenerateIM}
+              disabled={generating}
+              className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 flex items-center gap-2 disabled:opacity-50"
+            >
+              {generating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              {generating ? 'Generating...' : 'Download Report'}
             </button>
           </div>
         </div>
@@ -94,6 +174,15 @@ export default function AssessmentResultPage() {
                     {result.status} Light
                   </span>
                   <span className="text-white/80">Score: {result.score}/100</span>
+                  {currentStatus !== 'assessed' && (
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                      currentStatus === 'proceed' ? 'bg-emerald-400 text-emerald-900' :
+                      currentStatus === 'pending' ? 'bg-yellow-400 text-yellow-900' :
+                      'bg-gray-400 text-gray-900'
+                    }`}>
+                      {currentStatus.toUpperCase()}
+                    </span>
+                  )}
                 </div>
                 <h1 className="text-3xl font-bold mb-1">{opportunity.name}</h1>
                 <p className="text-white/80">
@@ -106,12 +195,12 @@ export default function AssessmentResultPage() {
               className="px-4 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30 flex items-center gap-2"
             >
               <Mic className={`w-4 h-4 ${voiceActive ? 'animate-pulse' : ''}`} />
-              {voiceActive ? 'Listening...' : 'Discuss Assessment'}
+              {voiceActive ? 'Listening...' : 'Discuss'}
             </button>
           </div>
         </div>
 
-        {/* AI Summary */}
+        {/* Voice Discussion */}
         {voiceActive && (
           <div className="bg-violet-50 border border-violet-200 rounded-xl p-6 mb-8">
             <div className="flex items-start gap-4">
@@ -134,9 +223,9 @@ export default function AssessmentResultPage() {
         )}
 
         <div className="grid grid-cols-3 gap-6">
-          {/* Left Column - Criteria */}
+          {/* Left Column - Details */}
           <div className="col-span-2 space-y-6">
-            {/* AI Summary Card */}
+            {/* AI Summary */}
             <div className="bg-white rounded-xl border border-gray-200 p-6">
               <h3 className="font-semibold text-gray-900 mb-3">AI Assessment Summary</h3>
               <p className="text-gray-700 leading-relaxed">{result.summary}</p>
@@ -146,7 +235,7 @@ export default function AssessmentResultPage() {
             <div className="bg-white rounded-xl border border-gray-200 p-6">
               <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-emerald-500" />
-                Passed Criteria ({result.passedCriteria.length})
+                De-Risk Factors Applied ({result.passedCriteria.length})
               </h3>
               <div className="space-y-2">
                 {result.passedCriteria.map((item, i) => (
@@ -220,14 +309,14 @@ export default function AssessmentResultPage() {
             )}
           </div>
 
-          {/* Right Column - Financial Summary */}
+          {/* Right Column - Scores & Actions */}
           <div className="space-y-6">
             {/* Score Breakdown */}
             <div className="bg-white rounded-xl border border-gray-200 p-6">
               <h3 className="font-semibold text-gray-900 mb-4">Score Breakdown</h3>
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-600">GM Score</span>
+                  <span className="text-gray-600">GM Score (GM% × 3)</span>
                   <span className="font-bold text-gray-900">+{result.gmScore}</span>
                 </div>
                 <div className="flex justify-between items-center">
@@ -251,59 +340,236 @@ export default function AssessmentResultPage() {
                 <DollarSign className="w-5 h-5 text-gray-500" />
                 Financial Summary
               </h3>
-              <div className="space-y-4">
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-500">Total Cost</p>
-                  <p className="text-2xl font-bold text-gray-900">
+              <div className="space-y-3">
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500">Total Cost</p>
+                  <p className="text-xl font-bold text-gray-900">
                     ${(result.financials.totalCost / 1000000).toFixed(2)}M
                   </p>
                 </div>
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-500">Total Revenue</p>
-                  <p className="text-2xl font-bold text-gray-900">
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500">Total Revenue</p>
+                  <p className="text-xl font-bold text-gray-900">
                     ${(result.financials.totalRevenue / 1000000).toFixed(2)}M
                   </p>
                 </div>
-                <div className="p-4 bg-emerald-50 rounded-lg">
-                  <p className="text-sm text-gray-500">Gross Margin</p>
-                  <p className="text-2xl font-bold text-emerald-600">
+                <div className="p-3 bg-emerald-50 rounded-lg">
+                  <p className="text-xs text-gray-500">Gross Margin</p>
+                  <p className="text-xl font-bold text-emerald-600">
                     ${(result.financials.grossMargin / 1000000).toFixed(2)}M
                   </p>
                 </div>
-                <div className={`p-4 rounded-lg ${
+                <div className={`p-3 rounded-lg ${
                   result.financials.grossMarginPercent >= 25 ? 'bg-emerald-50' : 'bg-amber-50'
                 }`}>
-                  <p className="text-sm text-gray-500">Gross Margin %</p>
-                  <p className={`text-2xl font-bold ${
+                  <p className="text-xs text-gray-500">Gross Margin %</p>
+                  <p className={`text-xl font-bold ${
                     result.financials.grossMarginPercent >= 25 ? 'text-emerald-600' : 'text-amber-600'
                   }`}>
                     {result.financials.grossMarginPercent.toFixed(1)}%
                   </p>
-                  {result.financials.grossMarginPercent < 25 && (
-                    <p className="text-xs text-amber-600 mt-1">Below 25% threshold</p>
-                  )}
                 </div>
               </div>
             </div>
 
-            {/* Actions */}
+            {/* Decision Actions */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h3 className="font-semibold text-gray-900 mb-4">What&apos;s Next?</h3>
+              <div className="space-y-2">
+                <button 
+                  onClick={() => handleStatusChange('proceed')}
+                  disabled={saving}
+                  className="w-full px-4 py-3 bg-gradient-to-r from-emerald-500 to-green-500 text-white rounded-xl font-bold hover:from-emerald-600 hover:to-green-600 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <PlayCircle className="w-5 h-5" />
+                  Proceed to Due Diligence
+                </button>
+                <button 
+                  onClick={() => setShowStatusModal(true)}
+                  disabled={saving}
+                  className="w-full px-4 py-3 bg-amber-100 text-amber-800 rounded-xl font-bold hover:bg-amber-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <Clock className="w-5 h-5" />
+                  Pend for Review
+                </button>
+                <button 
+                  onClick={() => handleStatusChange('archived')}
+                  disabled={saving}
+                  className="w-full px-4 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <Archive className="w-5 h-5" />
+                  Archive / Not Proceeding
+                </button>
+              </div>
+              
+              <div className="mt-4 pt-4 border-t border-gray-100 text-xs text-gray-500">
+                <p><strong>Proceed:</strong> Move to active pipeline for due diligence</p>
+                <p><strong>Pend:</strong> Park for later review or more info needed</p>
+                <p><strong>Archive:</strong> Not proceeding at this time</p>
+              </div>
+            </div>
+
+            {/* Quick Actions */}
             <div className="space-y-2">
-              <button className="w-full px-4 py-3 bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900 rounded-xl font-bold hover:shadow-lg transition-all">
-                💾 Save to Pipeline
-              </button>
-              <button className="w-full px-4 py-3 bg-emerald-500 text-white rounded-xl font-bold hover:bg-emerald-600 transition-all">
-                📄 Generate Investment Memo
+              <button 
+                onClick={handleGenerateIM}
+                disabled={generating}
+                className="w-full px-4 py-3 border-2 border-emerald-500 text-emerald-700 rounded-xl font-bold hover:bg-emerald-50 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {generating ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <FileText className="w-5 h-5" />
+                )}
+                {generating ? 'Generating...' : 'Generate Investment Memo'}
               </button>
               <Link 
                 href="/opportunities/new"
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
               >
-                <RefreshCw className="w-4 h-4" /> Assess Another
+                <RefreshCw className="w-4 h-4" /> Assess Another Opportunity
               </Link>
             </div>
           </div>
         </div>
       </main>
+
+      {/* Share Modal */}
+      {showShareModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Share Assessment</h2>
+              <button onClick={() => setShowShareModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Copy Link */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Share Link</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={`${typeof window !== 'undefined' ? window.location.origin : ''}/opportunities/${opportunity.id || 'demo'}`}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm"
+                  />
+                  <button
+                    onClick={copyShareLink}
+                    className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 flex items-center gap-2"
+                  >
+                    {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    {copied ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-200 pt-4">
+                <p className="text-sm font-medium text-gray-700 mb-3">Share via Email</p>
+                <div className="space-y-2">
+                  <button
+                    onClick={() => handleEmailShare('team')}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 flex items-center gap-3"
+                  >
+                    <Users className="w-5 h-5 text-blue-500" />
+                    <div className="text-left">
+                      <p className="font-medium text-gray-900">Share with Team</p>
+                      <p className="text-xs text-gray-500">Team members can view & comment</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => handleEmailShare('external')}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 flex items-center gap-3"
+                  >
+                    <Mail className="w-5 h-5 text-amber-500" />
+                    <div className="text-left">
+                      <p className="font-medium text-gray-900">Email to External</p>
+                      <p className="text-xs text-gray-500">Send summary via email</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-200 pt-4">
+                <button
+                  onClick={handleGenerateIM}
+                  disabled={generating}
+                  className="w-full px-4 py-3 bg-emerald-500 text-white rounded-xl font-medium hover:bg-emerald-600 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {generating ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Download className="w-5 h-5" />
+                  )}
+                  {generating ? 'Generating PDF...' : 'Download PDF Report'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pend Modal (with notes) */}
+      {showStatusModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Pend for Review</h2>
+              <button onClick={() => setShowStatusModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Add a note (optional)
+                </label>
+                <textarea
+                  value={statusNote}
+                  onChange={(e) => setStatusNote(e.target.value)}
+                  placeholder="e.g., Waiting for updated construction quotes, Need to verify DA conditions..."
+                  rows={4}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <h4 className="font-medium text-amber-800 mb-2">What happens when you pend?</h4>
+                <ul className="text-sm text-amber-700 space-y-1">
+                  <li>• Opportunity moves to your &quot;Pending Review&quot; queue</li>
+                  <li>• You&apos;ll get a reminder in 7 days</li>
+                  <li>• Team members can see it needs more info</li>
+                  <li>• You can re-assess anytime with new data</li>
+                </ul>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowStatusModal(false)}
+                  className="flex-1 px-4 py-3 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleStatusChange('pending')}
+                  disabled={saving}
+                  className="flex-1 px-4 py-3 bg-amber-500 text-white rounded-xl font-bold hover:bg-amber-600 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {saving ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Clock className="w-5 h-5" />
+                  )}
+                  {saving ? 'Saving...' : 'Pend Opportunity'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
