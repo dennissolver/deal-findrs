@@ -104,19 +104,19 @@ export default function OpportunityDetailPage() {
 
         {/* Voice Assistant */}
         {showVoice && (
-          <VoiceAssistant
-            context="assessment"
-            contextData={{
-              opportunity,
-              passedCriteria,
-              attentionItems,
-              pathToGreen,
-            }}
-            initialMessage={`This opportunity scored ${opportunity.status.toUpperCase()} with ${opportunity.score} points. The gross margin is ${opportunity.gm}%, which is ${opportunity.gm >= 25 ? 'meeting' : 'below'} your 25% green threshold. Would you like me to explain the score breakdown or discuss the path to green?`}
-            variant="modal"
-            className="mb-8"
-            onClose={() => setShowVoice(false)}
-          />
+          <div className="mb-8">
+            <VoiceAssistant
+              context="assessment"
+              contextData={{
+                opportunity,
+                passedCriteria,
+                attentionItems,
+                pathToGreen,
+              }}
+              customInitialPrompt={`This opportunity scored ${opportunity.status.toUpperCase()} with ${opportunity.score} points. The gross margin is ${opportunity.gm}%, which is ${opportunity.gm >= 25 ? 'meeting' : 'below'} your 25% green threshold. Would you like me to explain the score breakdown or discuss the path to green?`}
+              onClose={() => setShowVoice(false)}
+            />
+          </div>
         )}
 
         <div className="grid grid-cols-3 gap-6">

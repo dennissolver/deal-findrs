@@ -97,8 +97,14 @@ export default function SetupPage() {
           <VoiceAssistant
             context="setup"
             contextData={criteria}
-            initialMessage="Hi! I'll help you set up your assessment criteria. Most promoters use 25% gross margin for a green light and 18% for amber. Would you like to use these defaults or set custom thresholds?"
-            variant="banner"
+            onFieldExtracted={(field, value) => {
+              // Auto-fill criteria fields from voice
+              if (field === 'minGmGreen') {
+                setCriteria(prev => ({ ...prev, minGmGreen: Number(value) }))
+              } else if (field === 'minGmAmber') {
+                setCriteria(prev => ({ ...prev, minGmAmber: Number(value) }))
+              }
+            }}
           />
 
           <div className="p-8 space-y-8">

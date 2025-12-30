@@ -3,29 +3,44 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, ArrowRight, Upload, Check, AlertCircle } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, AlertCircle, Loader2 } from 'lucide-react'
 import { VoiceAssistant } from '@/components/voice/VoiceAssistant'
+import { DocumentUpload } from '@/components/voice/DocumentUpload'
+import { VoiceContext } from '@/lib/voice/prompts'
 
 type Step = 'basics' | 'property' | 'financial' | 'documents' | 'review'
+
+// Map form steps to voice contexts
+const VOICE_CONTEXTS: Record<Step, VoiceContext | null> = {
+  basics: 'opportunity_basics',
+  property: 'opportunity_property',
+  financial: 'opportunity_financial',
+  documents: 'opportunity_documents',
+  review: null, // No voice for review step
+}
 
 export default function NewOpportunityPage() {
   const router = useRouter()
   const [currentStep, setCurrentStep] = useState<Step>('basics')
   const [loading, setLoading] = useState(false)
+  const [documents, setDocuments] = useState<any[]>([])
   
   const [formData, setFormData] = useState({
-    // Basics
+    // ===== BASICS =====
     name: '',
     address: '',
     city: '',
     state: '',
+    postcode: '',
     country: 'Australia',
     landownerName: '',
     landownerPhone: '',
     landownerEmail: '',
+    landownerCompany: '',
     source: '',
+    sourceContact: '',
     
-    // Property Details
+    // ===== PROPERTY =====
     propertySize: '',
     propertySizeUnit: 'sqm',
     landStage: '',
@@ -33,8 +48,31 @@ export default function NewOpportunityPage() {
     numLots: '',
     numDwellings: '',
     existingStructures: '',
+    siteFeatures: '',
+    siteConstraints: '',
     
-    // Financial
+    // ===== DE-RISK FACTORS =====
+    deriskDaApproved: false,
+    deriskVendorFinance: false,
+    deriskVendorFinanceTerms: '',
+    deriskFixedPriceConstruction: false,
+    deriskConstructionPartner: '',
+    deriskPreSalesPercent: '',
+    deriskPreSalesCount: '',
+    deriskExperiencedPm: false,
+    deriskPmName: '',
+    deriskClearTitle: false,
+    deriskGrowthCorridor: false,
+    
+    // ===== RISK FACTORS =====
+    riskPreviousDisputes: false,
+    riskDisputeDetails: '',
+    riskEnvironmentalIssues: false,
+    riskEnvironmentalDetails: '',
+    riskHeritageOverlay: false,
+    riskHeritageDetails: '',
+    
+    // ===== FINANCIAL =====
     landPurchasePrice: '',
     infrastructureCosts: '',
     constructionPerUnit: '',
@@ -43,7 +81,7 @@ export default function NewOpportunityPage() {
     timeframeMonths: '',
     targetStartDate: '',
     
-    // Vision
+    // ===== VISION =====
     developmentGoals: '',
     developmentType: '',
     briefDescription: '',
@@ -58,15 +96,33 @@ export default function NewOpportunityPage() {
   ]
 
   const currentStepIndex = steps.findIndex(s => s.key === currentStep)
+  const voiceContext = VOICE_CONTEXTS[currentStep]
 
-  const updateField = (field: string, value: string) => {
+  // Update a single field
+  const updateField = (field: string, value: string | number | boolean) => {
     setFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  // Handle voice-extracted fields - auto-fill form
+  const handleFieldExtracted = (field: string, value: string | number | boolean) => {
+    console.log(`Voice extracted: ${field} = ${value}`)
+    updateField(field, value)
+    
+    // Auto-generate opportunity name if we have address + city
+    if ((field === 'address' || field === 'city') && !formData.name) {
+      const addr = field === 'address' ? String(value) : formData.address
+      const city = field === 'city' ? String(value) : formData.city
+      if (addr && city) {
+        updateField('name', `${addr}, ${city}`)
+      }
+    }
   }
 
   const nextStep = () => {
     const nextIndex = currentStepIndex + 1
     if (nextIndex < steps.length) {
       setCurrentStep(steps[nextIndex].key)
+      window.scrollTo(0, 0)
     }
   }
 
@@ -74,6 +130,7 @@ export default function NewOpportunityPage() {
     const prevIndex = currentStepIndex - 1
     if (prevIndex >= 0) {
       setCurrentStep(steps[prevIndex].key)
+      window.scrollTo(0, 0)
     }
   }
 
@@ -81,38 +138,43 @@ export default function NewOpportunityPage() {
     setLoading(true)
     
     try {
-      // Convert form data to API format
+      // Prepare opportunity data for assessment
       const opportunity = {
-        name: formData.name,
+        name: formData.name || `${formData.address}, ${formData.city}`,
         address: formData.address,
         city: formData.city,
         state: formData.state,
-        country: formData.country,
-        propertySize: Number(formData.propertySize) || 0,
-        propertySizeUnit: formData.propertySizeUnit as 'sqm' | 'acres' | 'sqft',
-        landStage: formData.landStage as 'da_approved' | 'needs_rezoning' | 'vacant' | 'redevelopment',
-        currentZoning: formData.currentZoning,
-        numLots: Number(formData.numLots) || 0,
-        numDwellings: Number(formData.numDwellings) || Number(formData.numLots) || 0,
-        existingStructures: formData.existingStructures,
-        landPurchasePrice: Number(formData.landPurchasePrice) || 0,
-        infrastructureCosts: Number(formData.infrastructureCosts) || 0,
-        constructionPerUnit: Number(formData.constructionPerUnit) || 0,
-        avgSalePrice: Number(formData.avgSalePrice) || 0,
-        contingencyPercent: Number(formData.contingencyPercent) || 5,
-        timeframeMonths: Number(formData.timeframeMonths) || 18,
-        // De-risk factors - these would come from checkboxes in a full form
-        hasProofOfOwnership: true,
-        hasLegalDisputes: false,
-        hasPreviousLegalDisputes: false,
-        hasDAApproval: formData.landStage === 'da_approved',
-        hasVendorFinance: false,
-        hasFixedPriceConstruction: true, // Factory2Key default
-        hasExperiencedPM: true,
-        hasClearTitle: true,
-        isInGrowthCorridor: false,
-        hasPreSales: false,
-        preSalesPercent: 0,
+        numLots: parseInt(formData.numLots) || 0,
+        numDwellings: parseInt(formData.numDwellings) || parseInt(formData.numLots) || 0,
+        landPurchasePrice: parseFloat(formData.landPurchasePrice) || 0,
+        infrastructureCosts: parseFloat(formData.infrastructureCosts) || 0,
+        constructionPerUnit: parseFloat(formData.constructionPerUnit) || 0,
+        avgSalePrice: parseFloat(formData.avgSalePrice) || 0,
+        contingencyPercent: parseFloat(formData.contingencyPercent) || 5,
+        timeframeMonths: parseInt(formData.timeframeMonths) || 18,
+        
+        // De-risk factors
+        deRiskFactors: {
+          daApproved: formData.deriskDaApproved || formData.landStage === 'da_approved',
+          vendorFinance: formData.deriskVendorFinance,
+          fixedPriceConstruction: formData.deriskFixedPriceConstruction,
+          preSalesSecured: parseFloat(formData.deriskPreSalesPercent) >= 50,
+          experiencedPM: formData.deriskExperiencedPm,
+          clearTitle: formData.deriskClearTitle,
+          growthCorridor: formData.deriskGrowthCorridor,
+        },
+        
+        // Risk factors
+        riskFactors: {
+          previousDisputes: formData.riskPreviousDisputes,
+          needsRezoning: formData.landStage === 'needs_rezoning',
+          noPreSales: !formData.deriskPreSalesPercent || parseFloat(formData.deriskPreSalesPercent) === 0,
+          environmentalIssues: formData.riskEnvironmentalIssues,
+        },
+        
+        // Documents (for RAG)
+        documentCount: documents.length,
+        documentCategories: Array.from(new Set(documents.map(d => d.category))),
       }
 
       // Call assessment API
@@ -128,9 +190,11 @@ export default function NewOpportunityPage() {
 
       const data = await response.json()
       
-      // Store result in sessionStorage for now (would use Supabase in production)
+      // Store result in sessionStorage
       sessionStorage.setItem('lastAssessment', JSON.stringify({
         opportunity,
+        formData,
+        documents,
         result: data.result,
       }))
 
@@ -144,98 +208,117 @@ export default function NewOpportunityPage() {
     }
   }
 
-  const voicePrompts: Record<Step, string> = {
-    basics: "Tell me about this opportunity. What's the address and who's the landowner?",
-    property: "What's the property size and current zoning? How many lots are you planning?",
-    financial: "What's the purchase price and expected sale price per unit?",
-    documents: "Do you have any documents to upload? Title deeds, DA approval, surveys?",
-    review: "I'll now run the assessment. Would you like me to explain anything first?",
+  // Calculate live financials for review
+  const calculateFinancials = () => {
+    const lots = parseInt(formData.numDwellings) || parseInt(formData.numLots) || 0
+    const landCost = parseFloat(formData.landPurchasePrice) || 0
+    const infraCost = parseFloat(formData.infrastructureCosts) || 0
+    const buildPerUnit = parseFloat(formData.constructionPerUnit) || 0
+    const salePrice = parseFloat(formData.avgSalePrice) || 0
+    const contingency = parseFloat(formData.contingencyPercent) || 5
+
+    const totalConstruction = buildPerUnit * lots
+    const baseCost = landCost + infraCost + totalConstruction
+    const contingencyAmount = baseCost * (contingency / 100)
+    const totalCost = baseCost + contingencyAmount
+    const totalRevenue = salePrice * lots
+    const grossMargin = totalRevenue - totalCost
+    const gmPercent = totalRevenue > 0 ? (grossMargin / totalRevenue) * 100 : 0
+
+    return { lots, totalCost, totalRevenue, grossMargin, gmPercent }
   }
+
+  const financials = calculateFinancials()
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       {/* Header */}
-      <nav className="bg-white border-b border-gray-200 px-6 py-4">
+      <nav className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <Link href="/opportunities" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-            <ArrowLeft className="w-4 h-4" /> Back to Opportunities
+            <ArrowLeft className="w-4 h-4" /> Back
           </Link>
+          
+          {/* Step indicators */}
           <div className="flex items-center gap-2">
             {steps.map((step, i) => (
               <div key={step.key} className="flex items-center">
                 <button
                   onClick={() => i <= currentStepIndex && setCurrentStep(step.key)}
+                  disabled={i > currentStepIndex}
                   className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
                     i < currentStepIndex 
-                      ? 'bg-emerald-500 text-white' 
+                      ? 'bg-emerald-500 text-white cursor-pointer' 
                       : i === currentStepIndex 
                         ? 'bg-amber-500 text-white' 
-                        : 'bg-gray-200 text-gray-500'
+                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                   }`}
+                  title={step.label}
                 >
                   {i < currentStepIndex ? <Check className="w-4 h-4" /> : step.icon}
                 </button>
                 {i < steps.length - 1 && (
-                  <div className={`w-8 h-0.5 ${i < currentStepIndex ? 'bg-emerald-500' : 'bg-gray-200'}`} />
+                  <div className={`w-6 h-0.5 mx-1 ${i < currentStepIndex ? 'bg-emerald-500' : 'bg-gray-200'}`} />
                 )}
               </div>
             ))}
           </div>
+          
+          <span className="text-sm text-gray-500">
+            {currentStepIndex + 1}/{steps.length}
+          </span>
         </div>
       </nav>
 
       <div className="max-w-4xl mx-auto px-6 py-8">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">New Opportunity</h1>
-          <p className="text-gray-600">Step {currentStepIndex + 1} of {steps.length}: {steps[currentStepIndex].label}</p>
+        <div className="text-center mb-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">New Opportunity</h1>
+          <p className="text-gray-600">Step {currentStepIndex + 1}: {steps[currentStepIndex].label}</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-          {/* Voice Assistant Banner */}
-          <VoiceAssistant
-            context="opportunity"
-            contextData={{ step: currentStep, formData }}
-            initialMessage={voicePrompts[currentStep]}
-            variant="banner"
-            onExtractedData={(data) => {
-              // Auto-fill form fields from voice input
-              Object.entries(data).forEach(([key, value]) => {
-                if (key in formData) {
-                  updateField(key, value as string)
-                }
-              })
-            }}
-          />
+          {/* Voice Assistant - show for data entry steps */}
+          {voiceContext && currentStep !== 'documents' && (
+            <VoiceAssistant
+              context={voiceContext}
+              contextData={formData}
+              onFieldExtracted={handleFieldExtracted}
+            />
+          )}
 
           <div className="p-8">
-            {/* Step: Basics */}
+            {/* ===== STEP: BASICS ===== */}
             {currentStep === 'basics' && (
               <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Opportunity Name *</label>
-                  <input 
-                    type="text"
-                    placeholder="e.g., Branscomb Rd, Claremont TAS"
-                    value={formData.name}
-                    onChange={(e) => updateField('name', e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Property Address *</label>
-                  <input 
-                    type="text"
-                    placeholder="122-124 Branscomb St"
-                    value={formData.address}
-                    onChange={(e) => updateField('address', e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Opportunity Name
+                      <span className="text-gray-400 font-normal ml-2">(auto-generated from address)</span>
+                    </label>
+                    <input 
+                      type="text"
+                      placeholder="e.g., 122 Branscomb Rd, Claremont"
+                      value={formData.name}
+                      onChange={(e) => updateField('name', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Street Address *</label>
+                    <input 
+                      type="text"
+                      placeholder="122 Branscomb Road"
+                      value={formData.address}
+                      onChange={(e) => updateField('address', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">City *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">City/Suburb *</label>
                     <input 
                       type="text"
                       placeholder="Claremont"
@@ -245,142 +328,156 @@ export default function NewOpportunityPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">State</label>
-                    <input 
-                      type="text"
-                      placeholder="TAS"
+                    <label className="block text-sm font-medium text-gray-700 mb-2">State *</label>
+                    <select
                       value={formData.state}
                       onChange={(e) => updateField('state', e.target.value)}
                       className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Country</label>
-                    <select 
-                      value={formData.country}
-                      onChange={(e) => updateField('country', e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
                     >
-                      <option>Australia</option>
-                      <option>New Zealand</option>
-                      <option>United States</option>
-                      <option>Trinidad and Tobago</option>
-                      <option>Guyana</option>
+                      <option value="">Select state</option>
+                      <option value="NSW">New South Wales</option>
+                      <option value="VIC">Victoria</option>
+                      <option value="QLD">Queensland</option>
+                      <option value="WA">Western Australia</option>
+                      <option value="SA">South Australia</option>
+                      <option value="TAS">Tasmania</option>
+                      <option value="NT">Northern Territory</option>
+                      <option value="ACT">ACT</option>
                     </select>
                   </div>
                 </div>
 
-                <div className="border-t border-gray-200 pt-6">
-                  <h3 className="font-semibold text-gray-900 mb-4">Landowner Details</h3>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
-                      <input 
-                        type="text"
-                        value={formData.landownerName}
-                        onChange={(e) => updateField('landownerName', e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
-                      <input 
-                        type="tel"
-                        value={formData.landownerPhone}
-                        onChange={(e) => updateField('landownerPhone', e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-                      <input 
-                        type="email"
-                        value={formData.landownerEmail}
-                        onChange={(e) => updateField('landownerEmail', e.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      />
-                    </div>
-                  </div>
-                </div>
+                <hr className="my-6" />
+                <h3 className="font-semibold text-gray-900">Landowner Details</h3>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">How did you find this opportunity?</label>
-                  <select 
-                    value={formData.source}
-                    onChange={(e) => updateField('source', e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
-                  >
-                    <option value="">Select source...</option>
-                    <option>Real estate listing</option>
-                    <option>Agent referral</option>
-                    <option>Direct approach</option>
-                    <option>Network contact</option>
-                    <option>Other</option>
-                  </select>
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Landowner Name</label>
+                    <input 
+                      type="text"
+                      placeholder="John Smith"
+                      value={formData.landownerName}
+                      onChange={(e) => updateField('landownerName', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
+                    <input 
+                      type="tel"
+                      placeholder="0412 345 678"
+                      value={formData.landownerPhone}
+                      onChange={(e) => updateField('landownerPhone', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                    <input 
+                      type="email"
+                      placeholder="john@example.com"
+                      value={formData.landownerEmail}
+                      onChange={(e) => updateField('landownerEmail', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Source</label>
+                    <input 
+                      type="text"
+                      placeholder="realestate.com.au, referral, direct..."
+                      value={formData.source}
+                      onChange={(e) => updateField('source', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* Step: Property */}
+            {/* ===== STEP: PROPERTY ===== */}
             {currentStep === 'property' && (
               <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Property Size *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Land Size *</label>
                     <div className="flex gap-2">
                       <input 
                         type="number"
-                        placeholder="19900"
+                        placeholder="20000"
                         value={formData.propertySize}
                         onChange={(e) => updateField('propertySize', e.target.value)}
                         className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
                       />
-                      <select 
+                      <select
                         value={formData.propertySizeUnit}
                         onChange={(e) => updateField('propertySizeUnit', e.target.value)}
-                        className="px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                        className="px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
                       >
                         <option value="sqm">sqm</option>
+                        <option value="hectares">hectares</option>
                         <option value="acres">acres</option>
-                        <option value="sqft">sqft</option>
                       </select>
                     </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Land Stage *</label>
-                    <select 
+                    <select
                       value={formData.landStage}
-                      onChange={(e) => updateField('landStage', e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                      onChange={(e) => {
+                        updateField('landStage', e.target.value)
+                        if (e.target.value === 'da_approved') {
+                          updateField('deriskDaApproved', true)
+                        }
+                      }}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
                     >
-                      <option value="">Select stage...</option>
-                      <option value="da_approved">DA Approved</option>
+                      <option value="">Select stage</option>
+                      <option value="da_approved">DA Approved ✓</option>
+                      <option value="da_lodged">DA Lodged (Pending)</option>
                       <option value="needs_rezoning">Needs Rezoning</option>
-                      <option value="vacant">Vacant Land</option>
-                      <option value="redevelopment">Redevelopment</option>
+                      <option value="raw_land">Raw Land</option>
+                      <option value="construction_ready">Construction Ready</option>
                     </select>
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Current Zoning</label>
-                  <input 
-                    type="text"
-                    placeholder="e.g., General Residential"
-                    value={formData.currentZoning}
-                    onChange={(e) => updateField('currentZoning', e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Current Zoning</label>
+                    <input 
+                      type="text"
+                      placeholder="R1, R2, B4..."
+                      value={formData.currentZoning}
+                      onChange={(e) => updateField('currentZoning', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Existing Structures</label>
+                    <input 
+                      type="text"
+                      placeholder="None, farmhouse, shed..."
+                      value={formData.existingStructures}
+                      onChange={(e) => updateField('existingStructures', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Number of Lots</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Number of Lots *</label>
                     <input 
                       type="number"
                       placeholder="37"
                       value={formData.numLots}
-                      onChange={(e) => updateField('numLots', e.target.value)}
+                      onChange={(e) => {
+                        updateField('numLots', e.target.value)
+                        if (!formData.numDwellings) {
+                          updateField('numDwellings', e.target.value)
+                        }
+                      }}
                       className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
                     />
                   </div>
@@ -396,43 +493,131 @@ export default function NewOpportunityPage() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Existing Structures</label>
-                  <textarea 
-                    rows={2}
-                    placeholder="Describe any existing buildings or structures..."
-                    value={formData.existingStructures}
-                    onChange={(e) => updateField('existingStructures', e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
+                <hr className="my-6" />
+                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                  🛡️ De-Risk Factors
+                  <span className="text-xs font-normal text-gray-500">(these add points to your score)</span>
+                </h3>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${formData.deriskVendorFinance ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <input
+                      type="checkbox"
+                      checked={formData.deriskVendorFinance}
+                      onChange={(e) => updateField('deriskVendorFinance', e.target.checked)}
+                      className="w-5 h-5 text-emerald-600 rounded"
+                    />
+                    <div>
+                      <span className="font-medium text-gray-900">Vendor Finance Available</span>
+                      <span className="text-emerald-600 text-sm ml-2">+10 pts</span>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${formData.deriskFixedPriceConstruction ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <input
+                      type="checkbox"
+                      checked={formData.deriskFixedPriceConstruction}
+                      onChange={(e) => updateField('deriskFixedPriceConstruction', e.target.checked)}
+                      className="w-5 h-5 text-emerald-600 rounded"
+                    />
+                    <div>
+                      <span className="font-medium text-gray-900">Fixed-Price Construction</span>
+                      <span className="text-emerald-600 text-sm ml-2">+10 pts</span>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${formData.deriskExperiencedPm ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <input
+                      type="checkbox"
+                      checked={formData.deriskExperiencedPm}
+                      onChange={(e) => updateField('deriskExperiencedPm', e.target.checked)}
+                      className="w-5 h-5 text-emerald-600 rounded"
+                    />
+                    <div>
+                      <span className="font-medium text-gray-900">Experienced PM</span>
+                      <span className="text-emerald-600 text-sm ml-2">+5 pts</span>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${formData.deriskClearTitle ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <input
+                      type="checkbox"
+                      checked={formData.deriskClearTitle}
+                      onChange={(e) => updateField('deriskClearTitle', e.target.checked)}
+                      className="w-5 h-5 text-emerald-600 rounded"
+                    />
+                    <div>
+                      <span className="font-medium text-gray-900">Clear Title</span>
+                      <span className="text-emerald-600 text-sm ml-2">+5 pts</span>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${formData.deriskGrowthCorridor ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <input
+                      type="checkbox"
+                      checked={formData.deriskGrowthCorridor}
+                      onChange={(e) => updateField('deriskGrowthCorridor', e.target.checked)}
+                      className="w-5 h-5 text-emerald-600 rounded"
+                    />
+                    <div>
+                      <span className="font-medium text-gray-900">Growth Corridor</span>
+                      <span className="text-emerald-600 text-sm ml-2">+5 pts</span>
+                    </div>
+                  </label>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Development Vision</label>
-                  <textarea 
-                    rows={3}
-                    placeholder="Describe your vision for this development..."
-                    value={formData.briefDescription}
-                    onChange={(e) => updateField('briefDescription', e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
+                {formData.deriskFixedPriceConstruction && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Construction Partner</label>
+                    <input 
+                      type="text"
+                      placeholder="Factory2Key, Metricon..."
+                      value={formData.deriskConstructionPartner}
+                      onChange={(e) => updateField('deriskConstructionPartner', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                )}
+
+                <hr className="my-6" />
+                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                  ⚠️ Risk Factors
+                  <span className="text-xs font-normal text-gray-500">(these deduct points)</span>
+                </h3>
+
+                <div className="space-y-4">
+                  <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${formData.riskPreviousDisputes ? 'border-red-300 bg-red-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <input
+                      type="checkbox"
+                      checked={formData.riskPreviousDisputes}
+                      onChange={(e) => updateField('riskPreviousDisputes', e.target.checked)}
+                      className="w-5 h-5 text-red-600 rounded"
+                    />
+                    <div>
+                      <span className="font-medium text-gray-900">Previous Legal Disputes</span>
+                      <span className="text-red-600 text-sm ml-2">-5 pts</span>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all ${formData.riskEnvironmentalIssues ? 'border-red-300 bg-red-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <input
+                      type="checkbox"
+                      checked={formData.riskEnvironmentalIssues}
+                      onChange={(e) => updateField('riskEnvironmentalIssues', e.target.checked)}
+                      className="w-5 h-5 text-red-600 rounded"
+                    />
+                    <div>
+                      <span className="font-medium text-gray-900">Environmental Concerns</span>
+                      <span className="text-red-600 text-sm ml-2">-10 pts</span>
+                    </div>
+                  </label>
                 </div>
               </div>
             )}
 
-            {/* Step: Financial */}
+            {/* ===== STEP: FINANCIAL ===== */}
             {currentStep === 'financial' && (
               <div className="space-y-6">
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
-                  <div className="flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-medium text-amber-800">Financial Accuracy Matters</p>
-                      <p className="text-sm text-amber-700">These figures directly impact your RAG assessment. Be as accurate as possible.</p>
-                    </div>
-                  </div>
-                </div>
-
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Land Purchase Price *</label>
@@ -464,7 +649,7 @@ export default function NewOpportunityPage() {
 
                 <div className="grid grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Construction Cost Per Unit</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Construction Cost Per Unit *</label>
                     <div className="relative">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">$</span>
                       <input 
@@ -477,7 +662,7 @@ export default function NewOpportunityPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Average Sale Price Per Unit *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Average Sale Price *</label>
                     <div className="relative">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">$</span>
                       <input 
@@ -491,13 +676,12 @@ export default function NewOpportunityPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-3 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Contingency %</label>
                     <div className="relative">
                       <input 
                         type="number"
-                        placeholder="5"
                         value={formData.contingencyPercent}
                         onChange={(e) => updateField('contingencyPercent', e.target.value)}
                         className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 pr-8"
@@ -515,133 +699,261 @@ export default function NewOpportunityPage() {
                       className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
                     />
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Target Start</label>
+                    <input 
+                      type="date"
+                      value={formData.targetStartDate}
+                      onChange={(e) => updateField('targetStartDate', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Target Start Date</label>
-                  <input 
-                    type="date"
-                    value={formData.targetStartDate}
-                    onChange={(e) => updateField('targetStartDate', e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
-              </div>
-            )}
+                <hr className="my-6" />
+                <h3 className="font-semibold text-gray-900">Pre-Sales</h3>
 
-            {/* Step: Documents */}
-            {currentStep === 'documents' && (
-              <div className="space-y-6">
-                <p className="text-gray-600">Upload relevant documents to support your opportunity assessment.</p>
-                
-                <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-amber-500 transition-colors cursor-pointer">
-                  <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-600 font-medium">Drag & drop files here, or click to browse</p>
-                  <p className="text-sm text-gray-400 mt-1">PDF, DOC, DOCX, XLS, XLSX, JPG, PNG up to 10MB each</p>
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Pre-Sales Secured (%)</label>
+                    <div className="relative">
+                      <input 
+                        type="number"
+                        placeholder="0"
+                        value={formData.deriskPreSalesPercent}
+                        onChange={(e) => updateField('deriskPreSalesPercent', e.target.value)}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 pr-8"
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500">%</span>
+                    </div>
+                    {parseFloat(formData.deriskPreSalesPercent) >= 50 && (
+                      <p className="text-emerald-600 text-sm mt-1">✓ +10 de-risk points for 50%+ pre-sales</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Pre-Sales Count</label>
+                    <input 
+                      type="number"
+                      placeholder="0"
+                      value={formData.deriskPreSalesCount}
+                      onChange={(e) => updateField('deriskPreSalesCount', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  {['Title Deed', 'DA Approval', 'Survey/Plans', 'Photos', 'Financial Model', 'Other'].map((docType) => (
-                    <div key={docType} className="p-4 border border-gray-200 rounded-xl hover:border-amber-500 cursor-pointer transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-                          📄
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900">{docType}</p>
-                          <p className="text-sm text-gray-500">No file uploaded</p>
-                        </div>
+                {/* Live Financial Preview */}
+                {financials.lots > 0 && financials.totalCost > 0 && (
+                  <div className={`p-6 rounded-xl border-2 ${
+                    financials.gmPercent >= 25 ? 'bg-emerald-50 border-emerald-200' :
+                    financials.gmPercent >= 18 ? 'bg-amber-50 border-amber-200' :
+                    'bg-red-50 border-red-200'
+                  }`}>
+                    <h4 className="font-semibold text-gray-900 mb-4">Live Financial Preview</h4>
+                    <div className="grid grid-cols-4 gap-4 text-center">
+                      <div>
+                        <p className="text-2xl font-bold text-gray-900">
+                          ${(financials.totalCost / 1000000).toFixed(1)}M
+                        </p>
+                        <p className="text-sm text-gray-600">Total Cost</p>
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold text-gray-900">
+                          ${(financials.totalRevenue / 1000000).toFixed(1)}M
+                        </p>
+                        <p className="text-sm text-gray-600">Total Revenue</p>
+                      </div>
+                      <div>
+                        <p className={`text-2xl font-bold ${financials.grossMargin > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          ${(financials.grossMargin / 1000000).toFixed(2)}M
+                        </p>
+                        <p className="text-sm text-gray-600">Gross Profit</p>
+                      </div>
+                      <div>
+                        <p className={`text-2xl font-bold ${
+                          financials.gmPercent >= 25 ? 'text-emerald-600' :
+                          financials.gmPercent >= 18 ? 'text-amber-600' :
+                          'text-red-600'
+                        }`}>
+                          {financials.gmPercent.toFixed(1)}%
+                        </p>
+                        <p className="text-sm text-gray-600">Gross Margin</p>
                       </div>
                     </div>
-                  ))}
-                </div>
+                    <p className="text-center text-sm mt-4 text-gray-600">
+                      {financials.gmPercent >= 25 
+                        ? '✅ On track for GREEN light'
+                        : financials.gmPercent >= 18
+                          ? '🟡 Currently AMBER - needs 25% for GREEN'
+                          : '🔴 Currently RED - needs significant improvement'
+                      }
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Step: Review */}
+            {/* ===== STEP: DOCUMENTS ===== */}
+            {currentStep === 'documents' && (
+              <DocumentUpload
+                onDocumentsChange={setDocuments}
+              />
+            )}
+
+            {/* ===== STEP: REVIEW ===== */}
             {currentStep === 'review' && (
               <div className="space-y-6">
-                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                  <p className="font-medium text-emerald-800">Ready to assess!</p>
-                  <p className="text-sm text-emerald-700">Review your details below, then submit for AI assessment.</p>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="p-4 bg-gray-50 rounded-xl">
-                    <h4 className="font-medium text-gray-700 mb-2">Basics</h4>
-                    <p className="text-gray-900">{formData.name || 'Not provided'}</p>
-                    <p className="text-gray-600">{formData.address}, {formData.city}, {formData.state}</p>
-                  </div>
-
-                  <div className="p-4 bg-gray-50 rounded-xl">
-                    <h4 className="font-medium text-gray-700 mb-2">Property</h4>
-                    <div className="grid grid-cols-3 gap-4 text-sm">
-                      <div>
-                        <p className="text-gray-500">Size</p>
-                        <p className="text-gray-900 font-medium">{formData.propertySize} {formData.propertySizeUnit}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-500">Lots</p>
-                        <p className="text-gray-900 font-medium">{formData.numLots || '-'}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-500">Stage</p>
-                        <p className="text-gray-900 font-medium">{formData.landStage || '-'}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-gray-50 rounded-xl">
-                    <h4 className="font-medium text-gray-700 mb-2">Financial Summary</h4>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <p className="text-gray-500">Land Price</p>
-                        <p className="text-gray-900 font-medium">${Number(formData.landPurchasePrice || 0).toLocaleString()}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-500">Avg Sale Price</p>
-                        <p className="text-gray-900 font-medium">${Number(formData.avgSalePrice || 0).toLocaleString()}</p>
-                      </div>
-                    </div>
+                <div className="text-center mb-6">
+                  <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-lg font-bold ${
+                    financials.gmPercent >= 25 ? 'bg-emerald-100 text-emerald-800' :
+                    financials.gmPercent >= 18 ? 'bg-amber-100 text-amber-800' :
+                    'bg-red-100 text-red-800'
+                  }`}>
+                    {financials.gmPercent >= 25 ? '🟢' : financials.gmPercent >= 18 ? '🟡' : '🔴'}
+                    Estimated: {financials.gmPercent.toFixed(1)}% GM
                   </div>
                 </div>
+
+                {/* Summary Cards */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <h4 className="font-semibold text-gray-900 mb-2">📍 Location</h4>
+                    <p className="text-gray-700">{formData.address || 'Not set'}</p>
+                    <p className="text-gray-600">{formData.city}, {formData.state}</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <h4 className="font-semibold text-gray-900 mb-2">🏗️ Property</h4>
+                    <p className="text-gray-700">{formData.numLots || 0} lots</p>
+                    <p className="text-gray-600">{formData.propertySize} {formData.propertySizeUnit}</p>
+                    <p className="text-gray-600 capitalize">{formData.landStage?.replace('_', ' ') || 'Unknown stage'}</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <h4 className="font-semibold text-gray-900 mb-2">📄 Documents</h4>
+                    <p className="text-gray-700">{documents.length} uploaded</p>
+                    {documents.length === 0 && (
+                      <p className="text-amber-600 text-sm">Consider adding documents for better assessment</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Financial Summary */}
+                <div className="bg-gray-50 rounded-xl p-6">
+                  <h4 className="font-semibold text-gray-900 mb-4">💰 Financial Summary</h4>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Land Purchase:</span>
+                      <span className="font-medium">${(parseFloat(formData.landPurchasePrice) || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Infrastructure:</span>
+                      <span className="font-medium">${(parseFloat(formData.infrastructureCosts) || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Construction ({formData.numDwellings || formData.numLots} × ${(parseFloat(formData.constructionPerUnit) || 0).toLocaleString()}):</span>
+                      <span className="font-medium">${((parseFloat(formData.constructionPerUnit) || 0) * (parseInt(formData.numDwellings) || parseInt(formData.numLots) || 0)).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between font-bold text-gray-900 pt-2 border-t">
+                      <span>Total Cost:</span>
+                      <span>${financials.totalCost.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Revenue ({formData.numDwellings || formData.numLots} × ${(parseFloat(formData.avgSalePrice) || 0).toLocaleString()}):</span>
+                      <span className="font-medium">${financials.totalRevenue.toLocaleString()}</span>
+                    </div>
+                    <div className={`flex justify-between font-bold pt-2 border-t ${financials.grossMargin > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      <span>Gross Profit:</span>
+                      <span>${financials.grossMargin.toLocaleString()} ({financials.gmPercent.toFixed(1)}%)</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* De-risk Factors Summary */}
+                <div className="bg-emerald-50 rounded-xl p-6">
+                  <h4 className="font-semibold text-gray-900 mb-3">🛡️ De-Risk Factors Applied</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {(formData.deriskDaApproved || formData.landStage === 'da_approved') && (
+                      <span className="px-3 py-1 bg-emerald-200 text-emerald-800 rounded-full text-sm">DA Approved +15</span>
+                    )}
+                    {formData.deriskVendorFinance && (
+                      <span className="px-3 py-1 bg-emerald-200 text-emerald-800 rounded-full text-sm">Vendor Finance +10</span>
+                    )}
+                    {formData.deriskFixedPriceConstruction && (
+                      <span className="px-3 py-1 bg-emerald-200 text-emerald-800 rounded-full text-sm">Fixed-Price Build +10</span>
+                    )}
+                    {parseFloat(formData.deriskPreSalesPercent) >= 50 && (
+                      <span className="px-3 py-1 bg-emerald-200 text-emerald-800 rounded-full text-sm">50%+ Pre-Sales +10</span>
+                    )}
+                    {formData.deriskExperiencedPm && (
+                      <span className="px-3 py-1 bg-emerald-200 text-emerald-800 rounded-full text-sm">Experienced PM +5</span>
+                    )}
+                    {formData.deriskClearTitle && (
+                      <span className="px-3 py-1 bg-emerald-200 text-emerald-800 rounded-full text-sm">Clear Title +5</span>
+                    )}
+                    {formData.deriskGrowthCorridor && (
+                      <span className="px-3 py-1 bg-emerald-200 text-emerald-800 rounded-full text-sm">Growth Corridor +5</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Risk Warnings */}
+                {(formData.riskPreviousDisputes || formData.riskEnvironmentalIssues || formData.landStage === 'needs_rezoning') && (
+                  <div className="bg-red-50 rounded-xl p-6">
+                    <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                      <AlertCircle className="w-5 h-5 text-red-600" />
+                      Risk Factors
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {formData.riskPreviousDisputes && (
+                        <span className="px-3 py-1 bg-red-200 text-red-800 rounded-full text-sm">Previous Disputes -5</span>
+                      )}
+                      {formData.landStage === 'needs_rezoning' && (
+                        <span className="px-3 py-1 bg-red-200 text-red-800 rounded-full text-sm">Needs Rezoning -10</span>
+                      )}
+                      {formData.riskEnvironmentalIssues && (
+                        <span className="px-3 py-1 bg-red-200 text-red-800 rounded-full text-sm">Environmental Issues -10</span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          {/* Footer */}
-          <div className="px-8 py-6 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-            <button 
+          {/* Navigation */}
+          <div className="px-8 py-6 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+            <button
               onClick={prevStep}
               disabled={currentStepIndex === 0}
-              className="px-6 py-3 text-gray-600 hover:text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="flex items-center gap-2 px-6 py-3 text-gray-600 hover:text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <ArrowLeft className="w-4 h-4" /> Previous
+              <ArrowLeft className="w-4 h-4" /> Back
             </button>
-            
+
             {currentStep === 'review' ? (
-              <button 
+              <button
                 onClick={handleSubmit}
                 disabled={loading}
-                className="px-8 py-3 bg-gradient-to-r from-emerald-500 to-green-600 text-white rounded-xl font-bold hover:shadow-lg transition-all disabled:opacity-50 flex items-center gap-2"
+                className="flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold rounded-xl hover:from-amber-600 hover:to-orange-600 disabled:opacity-50"
               >
                 {loading ? (
                   <>
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Running Assessment...
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Assessing...
                   </>
                 ) : (
                   <>
-                    🚦 Submit for Assessment
+                    Run Assessment
+                    <ArrowRight className="w-4 h-4" />
                   </>
                 )}
               </button>
             ) : (
-              <button 
+              <button
                 onClick={nextStep}
-                className="px-8 py-3 bg-gradient-to-r from-amber-400 to-orange-500 text-slate-900 rounded-xl font-bold hover:shadow-lg transition-all flex items-center gap-2"
+                className="flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold rounded-xl hover:from-amber-600 hover:to-orange-600"
               >
-                Next <ArrowRight className="w-4 h-4" />
+                Next
+                <ArrowRight className="w-4 h-4" />
               </button>
             )}
           </div>
