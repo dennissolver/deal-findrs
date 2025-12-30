@@ -2,10 +2,11 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Mic, FileText, Edit, Archive, CheckCircle, AlertTriangle, TrendingUp, DollarSign } from 'lucide-react'
+import { ArrowLeft, FileText, Edit, Archive, CheckCircle, AlertTriangle, TrendingUp, DollarSign } from 'lucide-react'
+import { VoiceAssistant } from '@/components/voice/VoiceAssistant'
 
 export default function OpportunityDetailPage() {
-  const [voiceActive, setVoiceActive] = useState(false)
+  const [showVoice, setShowVoice] = useState(false)
 
   // Sample data - would come from Supabase
   const opportunity = {
@@ -93,47 +94,29 @@ export default function OpportunityDetailPage() {
               </div>
             </div>
             <button 
-              onClick={() => setVoiceActive(!voiceActive)}
+              onClick={() => setShowVoice(!showVoice)}
               className="px-4 py-2 bg-white/20 text-white rounded-lg hover:bg-white/30 flex items-center gap-2"
             >
-              <Mic className={`w-4 h-4 ${voiceActive ? 'animate-pulse' : ''}`} />
-              {voiceActive ? 'Listening...' : 'Discuss Assessment'}
+              🎙️ {showVoice ? 'Hide Assistant' : 'Discuss Assessment'}
             </button>
           </div>
         </div>
 
-        {/* Voice Dialog */}
-        {voiceActive && (
-          <div className="bg-violet-50 border border-violet-200 rounded-xl p-6 mb-8 animate-fadeIn">
-            <div className="flex items-start gap-4">
-              <div className="w-10 h-10 bg-violet-200 rounded-full flex items-center justify-center flex-shrink-0">
-                <Mic className="w-5 h-5 text-violet-600 animate-pulse" />
-              </div>
-              <div>
-                <p className="text-gray-800 leading-relaxed">
-                  "This opportunity scored <strong>AMBER</strong> primarily because the gross margin of 22.2% 
-                  is below your 25% green threshold. However, it has excellent de-risk factors: DA approved, 
-                  vendor finance, and Factory2Key fixed-price construction. To reach GREEN, you could negotiate 
-                  $500K off the purchase price OR increase the average sale price by $22K per unit. 
-                  Would you like me to explain the financial breakdown in more detail?"
-                </p>
-                <div className="flex gap-2 mt-4">
-                  <button className="px-4 py-2 bg-violet-200 text-violet-700 rounded-lg text-sm font-medium hover:bg-violet-300">
-                    Yes, explain more
-                  </button>
-                  <button className="px-4 py-2 bg-violet-200 text-violet-700 rounded-lg text-sm font-medium hover:bg-violet-300">
-                    Show path to GREEN
-                  </button>
-                  <button 
-                    onClick={() => setVoiceActive(false)}
-                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300"
-                  >
-                    Got it, thanks
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+        {/* Voice Assistant */}
+        {showVoice && (
+          <VoiceAssistant
+            context="assessment"
+            contextData={{
+              opportunity,
+              passedCriteria,
+              attentionItems,
+              pathToGreen,
+            }}
+            initialMessage={`This opportunity scored ${opportunity.status.toUpperCase()} with ${opportunity.score} points. The gross margin is ${opportunity.gm}%, which is ${opportunity.gm >= 25 ? 'meeting' : 'below'} your 25% green threshold. Would you like me to explain the score breakdown or discuss the path to green?`}
+            variant="modal"
+            className="mb-8"
+            onClose={() => setShowVoice(false)}
+          />
         )}
 
         <div className="grid grid-cols-3 gap-6">

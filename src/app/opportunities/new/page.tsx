@@ -3,14 +3,14 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, ArrowRight, Mic, MicOff, Upload, X, Check, AlertCircle } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Upload, Check, AlertCircle } from 'lucide-react'
+import { VoiceAssistant } from '@/components/voice/VoiceAssistant'
 
 type Step = 'basics' | 'property' | 'financial' | 'documents' | 'review'
 
 export default function NewOpportunityPage() {
   const router = useRouter()
   const [currentStep, setCurrentStep] = useState<Step>('basics')
-  const [voiceActive, setVoiceActive] = useState(false)
   const [loading, setLoading] = useState(false)
   
   const [formData, setFormData] = useState({
@@ -192,28 +192,20 @@ export default function NewOpportunityPage() {
 
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
           {/* Voice Assistant Banner */}
-          <div className="bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setVoiceActive(!voiceActive)}
-                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
-                  voiceActive ? 'bg-white text-violet-600' : 'bg-white/20 text-white'
-                }`}
-              >
-                {voiceActive ? <Mic className="w-5 h-5 animate-pulse" /> : <MicOff className="w-5 h-5" />}
-              </button>
-              <div className="text-white">
-                <p className="font-medium">Voice Assistant</p>
-                <p className="text-sm text-white/80">"{voicePrompts[currentStep]}"</p>
-              </div>
-            </div>
-            <button 
-              onClick={() => setVoiceActive(!voiceActive)}
-              className="px-4 py-2 bg-white text-violet-600 rounded-lg text-sm font-medium hover:bg-white/90 transition-colors"
-            >
-              🎙️ {voiceActive ? 'Listening...' : 'Speak Details'}
-            </button>
-          </div>
+          <VoiceAssistant
+            context="opportunity"
+            contextData={{ step: currentStep, formData }}
+            initialMessage={voicePrompts[currentStep]}
+            variant="banner"
+            onExtractedData={(data) => {
+              // Auto-fill form fields from voice input
+              Object.entries(data).forEach(([key, value]) => {
+                if (key in formData) {
+                  updateField(key, value as string)
+                }
+              })
+            }}
+          />
 
           <div className="p-8">
             {/* Step: Basics */}

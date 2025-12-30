@@ -3,11 +3,11 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Mic, MicOff, Plus, ArrowRight, ArrowLeft, CheckCircle, AlertTriangle, TrendingUp } from 'lucide-react'
+import { Plus, ArrowRight, ArrowLeft, CheckCircle, AlertTriangle, TrendingUp } from 'lucide-react'
+import { VoiceAssistant } from '@/components/voice/VoiceAssistant'
 
 export default function SetupPage() {
   const router = useRouter()
-  const [voiceActive, setVoiceActive] = useState(false)
   const [loading, setLoading] = useState(false)
   
   const [criteria, setCriteria] = useState({
@@ -94,59 +94,12 @@ export default function SetupPage() {
 
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
           {/* Voice Assistant Banner */}
-          <div className="bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setVoiceActive(!voiceActive)}
-                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
-                  voiceActive ? 'bg-white text-violet-600' : 'bg-white/20 text-white'
-                }`}
-              >
-                {voiceActive ? <Mic className="w-5 h-5 animate-pulse" /> : <MicOff className="w-5 h-5" />}
-              </button>
-              <div className="text-white">
-                <p className="font-medium">Voice Assistant {voiceActive ? 'Active' : 'Available'}</p>
-                <p className="text-sm text-white/80">
-                  {voiceActive 
-                    ? '"I\'ll help you set up your ideal deal criteria..."' 
-                    : 'Click the mic to get voice guidance'}
-                </p>
-              </div>
-            </div>
-            <button 
-              onClick={() => setVoiceActive(!voiceActive)}
-              className="px-4 py-2 bg-white/20 text-white rounded-lg text-sm hover:bg-white/30 transition-colors"
-            >
-              {voiceActive ? 'Pause' : 'Start'} Voice Guide
-            </button>
-          </div>
-
-          {/* Voice Dialog */}
-          {voiceActive && (
-            <div className="bg-violet-50 border-b border-violet-100 px-6 py-4">
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 bg-violet-200 rounded-full flex items-center justify-center flex-shrink-0">
-                  <Mic className="w-4 h-4 text-violet-600" />
-                </div>
-                <div>
-                  <p className="text-gray-700 text-sm leading-relaxed">
-                    &quot;Great start! I see you&apos;ve set 25% as your minimum GM for a green light. 
-                    This is in line with industry standards of 20-30%. Would you like me to explain 
-                    how de-risk factors can compensate for slightly lower margins? Just say &apos;yes&apos; 
-                    or click below.&quot;
-                  </p>
-                  <div className="flex gap-2 mt-2">
-                    <button className="px-3 py-1.5 bg-violet-200 text-violet-700 rounded-lg text-xs font-medium hover:bg-violet-300">
-                      Yes, explain
-                    </button>
-                    <button className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-300">
-                      No, continue
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          <VoiceAssistant
+            context="setup"
+            contextData={criteria}
+            initialMessage="Hi! I'll help you set up your assessment criteria. Most promoters use 25% gross margin for a green light and 18% for amber. Would you like to use these defaults or set custom thresholds?"
+            variant="banner"
+          />
 
           <div className="p-8 space-y-8">
             {/* Financial Thresholds */}

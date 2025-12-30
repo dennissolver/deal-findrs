@@ -1,13 +1,34 @@
 import OpenAI from 'openai';
 
-// DataWizz client - routes through DataWizz gateway to Anthropic Claude
-export const aiClient = new OpenAI({
-  apiKey: process.env.DATAWIZZ_API_KEY!,
-  baseURL: process.env.DATAWIZZ_BASE_URL!,
-});
-
 // Model name is the DataWizz endpoint name
 export const AI_MODEL = process.env.DATAWIZZ_MODEL || 'dealfindrs';
+
+// Lazy initialization to avoid build-time errors
+let _aiClient: OpenAI | null = null;
+
+function getAIClient(): OpenAI {
+  if (!_aiClient) {
+    const apiKey = process.env.DATAWIZZ_API_KEY;
+    const baseURL = process.env.DATAWIZZ_BASE_URL;
+    
+    if (!apiKey || !baseURL) {
+      throw new Error('DataWizz API key and base URL are required. Set DATAWIZZ_API_KEY and DATAWIZZ_BASE_URL environment variables.');
+    }
+    
+    _aiClient = new OpenAI({
+      apiKey,
+      baseURL,
+    });
+  }
+  return _aiClient;
+}
+
+// Export getter for client
+export const aiClient = {
+  get instance() {
+    return getAIClient();
+  }
+};
 
 // Helper function for chat completions
 export async function chat(
@@ -18,7 +39,9 @@ export async function chat(
     metadata?: Record<string, string>;
   }
 ) {
-  const response = await aiClient.chat.completions.create({
+  const client = getAIClient();
+  
+  const response = await client.chat.completions.create({
     model: AI_MODEL,
     messages,
     temperature: options?.temperature ?? 0.3,
