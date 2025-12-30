@@ -1,10 +1,32 @@
 -- DealFindrs Database Schema v2
 -- Updated to capture all voice agent data and documents for RAG assessment
 -- Run this in Supabase SQL Editor
+-- ⚠️ WARNING: This will DROP existing tables! Use migration-v2.sql to preserve data.
 
 -- Enable extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "vector";  -- For RAG embeddings
+
+-- ============================================
+-- DROP EXISTING TABLES (in reverse dependency order)
+-- ============================================
+DROP TABLE IF EXISTS notifications CASCADE;
+DROP TABLE IF EXISTS voice_transcripts CASCADE;
+DROP TABLE IF EXISTS document_embeddings CASCADE;
+DROP TABLE IF EXISTS investment_memorandums CASCADE;
+DROP TABLE IF EXISTS assessments CASCADE;
+DROP TABLE IF EXISTS documents CASCADE;
+DROP TABLE IF EXISTS opportunity_financials CASCADE;
+DROP TABLE IF EXISTS opportunities CASCADE;
+DROP TABLE IF EXISTS company_settings CASCADE;
+DROP TABLE IF EXISTS company_invites CASCADE;
+DROP TABLE IF EXISTS company_memberships CASCADE;
+DROP TABLE IF EXISTS activity_log CASCADE;
+DROP TABLE IF EXISTS profiles CASCADE;
+DROP TABLE IF EXISTS companies CASCADE;
+
+-- Drop types if exist
+DROP TYPE IF EXISTS document_category CASCADE;
 
 -- ============================================
 -- COMPANIES & USERS
@@ -332,56 +354,7 @@ CREATE TABLE opportunity_financials (
 -- DOCUMENTS (For RAG Knowledge Base)
 -- ============================================
 
--- Document Categories for structured collection
-CREATE TYPE document_category AS ENUM (
-  -- Ownership & Legal
-  'title_deed',
-  'contract_of_sale',
-  'vendor_statement',
-  'legal_advice',
-  
-  -- Planning & Approvals
-  'da_submission',
-  'da_approval',
-  'planning_permit',
-  'rezoning_application',
-  'council_correspondence',
-  
-  -- Site & Survey
-  'site_survey',
-  'boundary_plan',
-  'contour_survey',
-  'feature_survey',
-  
-  -- Design & Drawings
-  'concept_drawings',
-  'architectural_drawings',
-  'landscape_drawings',
-  'engineering_drawings',
-  'civil_drawings',
-  
-  -- Technical Reports
-  'geotechnical_report',
-  'environmental_report',
-  'heritage_assessment',
-  'traffic_study',
-  'acoustic_report',
-  'bushfire_assessment',
-  'flood_study',
-  
-  -- Financial
-  'construction_quote',
-  'financial_model',
-  'bank_valuation',
-  'sales_evidence',
-  'pre_sale_contracts',
-  
-  -- Other
-  'photos',
-  'marketing_material',
-  'correspondence',
-  'other'
-);
+-- Document Categories (using TEXT with CHECK for flexibility)
 
 CREATE TABLE documents (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -396,7 +369,16 @@ CREATE TABLE documents (
   public_url TEXT,
   
   -- Classification
-  category document_category NOT NULL,
+  category TEXT NOT NULL CHECK (category IN (
+    'title_deed', 'contract_of_sale', 'vendor_statement', 'legal_advice',
+    'da_submission', 'da_approval', 'da', 'planning_permit', 'rezoning_application', 'council_correspondence',
+    'site_survey', 'survey', 'boundary_plan', 'contour_survey', 'feature_survey',
+    'concept_drawings', 'architectural_drawings', 'landscape_drawings', 'engineering_drawings', 'civil_drawings',
+    'geotechnical_report', 'environmental_report', 'environmental', 'heritage_assessment', 
+    'traffic_study', 'acoustic_report', 'bushfire_assessment', 'flood_study',
+    'construction_quote', 'financial_model', 'financial', 'bank_valuation', 'sales_evidence', 'pre_sale_contracts',
+    'photos', 'marketing_material', 'correspondence', 'other'
+  )),
   subcategory TEXT,             -- Optional further classification
   description TEXT,             -- User-provided description
   
@@ -437,7 +419,7 @@ CREATE TABLE document_embeddings (
   embedding vector(1536),       -- OpenAI embedding dimension
   
   -- Metadata for filtering
-  category document_category,
+  category TEXT,
   page_number INTEGER,
   
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -642,6 +624,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
@@ -655,10 +638,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS update_opportunities_updated_at ON opportunities;
 CREATE TRIGGER update_opportunities_updated_at
   BEFORE UPDATE ON opportunities
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
+DROP TRIGGER IF EXISTS update_documents_updated_at ON documents;
 CREATE TRIGGER update_documents_updated_at
   BEFORE UPDATE ON documents
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -690,6 +675,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS calculate_financials_before_save ON opportunities;
 CREATE TRIGGER calculate_financials_before_save
   BEFORE INSERT OR UPDATE ON opportunities
   FOR EACH ROW EXECUTE FUNCTION calculate_opportunity_financials();

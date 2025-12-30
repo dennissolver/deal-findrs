@@ -207,62 +207,9 @@ ADD COLUMN IF NOT EXISTS gross_margin_percent NUMERIC DEFAULT 0,
 ADD COLUMN IF NOT EXISTS roi_percent NUMERIC DEFAULT 0;
 
 -- ============================================
--- CREATE DOCUMENT CATEGORY TYPE
+-- DOCUMENT CATEGORIES (using TEXT with CHECK, not ENUM for flexibility)
 -- ============================================
-DO $$ 
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'document_category') THEN
-    CREATE TYPE document_category AS ENUM (
-      -- Ownership & Legal
-      'title_deed',
-      'contract_of_sale',
-      'vendor_statement',
-      'legal_advice',
-      
-      -- Planning & Approvals
-      'da_submission',
-      'da_approval',
-      'planning_permit',
-      'rezoning_application',
-      'council_correspondence',
-      
-      -- Site & Survey
-      'site_survey',
-      'boundary_plan',
-      'contour_survey',
-      'feature_survey',
-      
-      -- Design & Drawings
-      'concept_drawings',
-      'architectural_drawings',
-      'landscape_drawings',
-      'engineering_drawings',
-      'civil_drawings',
-      
-      -- Technical Reports
-      'geotechnical_report',
-      'environmental_report',
-      'heritage_assessment',
-      'traffic_study',
-      'acoustic_report',
-      'bushfire_assessment',
-      'flood_study',
-      
-      -- Financial
-      'construction_quote',
-      'financial_model',
-      'bank_valuation',
-      'sales_evidence',
-      'pre_sale_contracts',
-      
-      -- Other
-      'photos',
-      'marketing_material',
-      'correspondence',
-      'other'
-    );
-  END IF;
-END $$;
+-- Note: If you get an enum error, run fix-enum.sql FIRST
 
 -- ============================================
 -- ENHANCE DOCUMENTS TABLE FOR RAG
@@ -288,7 +235,7 @@ ADD COLUMN IF NOT EXISTS is_critical BOOLEAN DEFAULT FALSE,
 ADD COLUMN IF NOT EXISTS verification_notes TEXT,
 ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ DEFAULT NOW();
 
--- Update category constraint (if using TEXT instead of enum)
+-- Update constraint (drop first to make idempotent)
 ALTER TABLE documents DROP CONSTRAINT IF EXISTS documents_category_check;
 ALTER TABLE documents ADD CONSTRAINT documents_category_check 
   CHECK (category IN (
