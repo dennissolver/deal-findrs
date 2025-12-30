@@ -4,19 +4,18 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, ArrowRight, Check, AlertCircle, Loader2 } from 'lucide-react'
-import { VoiceAssistant } from '@/components/voice/VoiceAssistant'
+import { VoiceInput } from '@/components/voice/VoiceInput'
 import { DocumentUpload } from '@/components/voice/DocumentUpload'
-import { VoiceContext } from '@/lib/voice/prompts'
 
 type Step = 'basics' | 'property' | 'financial' | 'documents' | 'review'
 
-// Map form steps to voice contexts
-const VOICE_CONTEXTS: Record<Step, VoiceContext | null> = {
-  basics: 'opportunity_basics',
-  property: 'opportunity_property',
-  financial: 'opportunity_financial',
-  documents: 'opportunity_documents',
-  review: null, // No voice for review step
+// Map form steps to ElevenLabs agent steps
+const VOICE_STEPS: Record<Step, 'basics' | 'property' | 'financial' | 'derisk' | null> = {
+  basics: 'basics',
+  property: 'property',
+  financial: 'financial',
+  documents: null, // No voice for documents step
+  review: null,    // No voice for review step
 }
 
 export default function NewOpportunityPage() {
@@ -96,7 +95,7 @@ export default function NewOpportunityPage() {
   ]
 
   const currentStepIndex = steps.findIndex(s => s.key === currentStep)
-  const voiceContext = VOICE_CONTEXTS[currentStep]
+  const voiceStep = VOICE_STEPS[currentStep]
 
   // Update a single field
   const updateField = (field: string, value: string | number | boolean) => {
@@ -277,10 +276,10 @@ export default function NewOpportunityPage() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-          {/* Voice Assistant - show for data entry steps */}
-          {voiceContext && currentStep !== 'documents' && (
-            <VoiceAssistant
-              context={voiceContext}
+          {/* Voice Input - show for data entry steps */}
+          {voiceStep && (
+            <VoiceInput
+              step={voiceStep}
               contextData={formData}
               onFieldExtracted={handleFieldExtracted}
             />
