@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Mic, MicOff, Loader2, Volume2, Phone, PhoneOff, AlertCircle, Settings } from 'lucide-react'
+import { Mic, Loader2, PhoneOff, AlertCircle, Settings } from 'lucide-react'
 import Link from 'next/link'
 
 // Agent IDs from environment - check if they're actually set
@@ -36,9 +36,7 @@ export function VoiceInput({
   const [status, setStatus] = useState<ConnectionStatus>('idle')
   const [transcript, setTranscript] = useState<Array<{ role: 'agent' | 'user'; text: string }>>([])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const wsRef = useRef<WebSocket | null>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioContextRef = useRef<AudioContext | null>(null)
+  const conversationRef = useRef<any>(null)
 
   const agentId = AGENT_IDS[step]
 
@@ -63,142 +61,72 @@ export function VoiceInput({
     setErrorMessage(null)
 
     try {
-      // Request microphone permission
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // Request microphone permission first
+      await navigator.mediaDevices.getUserMedia({ audio: true })
 
-      // Get connection info from our API
+      // Dynamically import ElevenLabs SDK (client-side only)
+      const { Conversation } = await import('@11labs/client')
+
+      // Get signed URL from our server
       const response = await fetch('/api/voice/elevenlabs-connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          agentId,
-          metadata: {
-            ...metadata,
-            step,
-          }
-        }),
+        body: JSON.stringify({ agentId }),
       })
 
       const data = await response.json()
-      
+
       if (!response.ok || data.error) {
-        throw new Error(data.message || 'Failed to connect to voice service')
+        throw new Error(data.message || 'Failed to connect')
       }
 
-      // Connect via WebSocket to ElevenLabs
-      const wsUrl = data.signedUrl || `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${agentId}`
-      const ws = new WebSocket(wsUrl)
-      wsRef.current = ws
-
-      ws.onopen = () => {
-        setStatus('connected')
-        
-        // Start sending audio
-        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
-        mediaRecorderRef.current = mediaRecorder
-
-        mediaRecorder.ondataavailable = async (event) => {
-          if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
-            const arrayBuffer = await event.data.arrayBuffer()
-            ws.send(arrayBuffer)
+      // Start conversation with signed URL
+      const conversation = await Conversation.startSession({
+        signedUrl: data.signedUrl,
+        onConnect: () => {
+          setStatus('connected')
+        },
+        onDisconnect: () => {
+          setStatus('idle')
+          conversationRef.current = null
+        },
+        onMessage: (message: any) => {
+          // Handle different message types
+          if (message.source === 'ai' && message.message) {
+            setTranscript(prev => [...prev, { role: 'agent', text: message.message }])
+          } else if (message.source === 'user' && message.message) {
+            setTranscript(prev => [...prev, { role: 'user', text: message.message }])
           }
-        }
+        },
+        onError: (error: any) => {
+          console.error('Conversation error:', error)
+          setErrorMessage(error.message || 'Connection error')
+          setStatus('error')
+        },
+      })
 
-        mediaRecorder.start(250) // Send audio every 250ms
-      }
+      conversationRef.current = conversation
 
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data)
-          handleMessage(msg)
-        } catch {
-          // Binary audio data for playback
-          if (event.data instanceof Blob) {
-            playAudio(event.data)
-          }
-        }
-      }
-
-      ws.onerror = () => {
-        setStatus('error')
-        setErrorMessage('Connection error. Please try again.')
-        stream.getTracks().forEach(track => track.stop())
-      }
-
-      ws.onclose = () => {
-        setStatus('idle')
-        stream.getTracks().forEach(track => track.stop())
-        if (mediaRecorderRef.current) {
-          mediaRecorderRef.current.stop()
-        }
-      }
-
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Start conversation error:', error)
       setStatus('error')
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to start voice input')
-    }
-  }, [agentId, step, metadata])
-
-  const handleMessage = useCallback((data: any) => {
-    switch (data.type) {
-      case 'transcript':
-      case 'agent_response':
-        if (data.text) {
-          setTranscript(prev => [...prev, { role: 'agent', text: data.text }])
-        }
-        break
-
-      case 'user_transcript':
-        if (data.text) {
-          setTranscript(prev => [...prev, { role: 'user', text: data.text }])
-        }
-        break
-
-      case 'field_extracted':
-        if (data.field && data.value !== undefined) {
-          onFieldExtracted?.(data.field, data.value)
-        }
-        break
-
-      case 'conversation_complete':
-      case 'conversation_ended':
-        onConversationComplete?.(data.extracted_data || data)
-        break
-
-      case 'error':
-        setErrorMessage(data.message)
-        break
-    }
-  }, [onFieldExtracted, onConversationComplete])
-
-  const playAudio = useCallback(async (audioData: Blob | ArrayBuffer) => {
-    try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioContext()
+      
+      if (error.name === 'NotAllowedError') {
+        setErrorMessage('Microphone access denied. Please allow microphone access and try again.')
+      } else {
+        setErrorMessage(error.message || 'Failed to start voice input')
       }
-      
-      const arrayBuffer = audioData instanceof Blob 
-        ? await audioData.arrayBuffer() 
-        : audioData
-      
-      const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer)
-      const source = audioContextRef.current.createBufferSource()
-      source.buffer = audioBuffer
-      source.connect(audioContextRef.current.destination)
-      source.start()
-    } catch (error) {
-      console.error('Audio playback error:', error)
     }
-  }, [])
+  }, [agentId])
 
-  const endConversation = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close()
-      wsRef.current = null
-    }
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop()
-      mediaRecorderRef.current = null
+  const endConversation = useCallback(async () => {
+    if (conversationRef.current) {
+      try {
+        await conversationRef.current.endSession()
+      } catch (e) {
+        console.error('End session error:', e)
+      }
+      conversationRef.current = null
     }
     setStatus('idle')
   }, [])
@@ -206,9 +134,9 @@ export function VoiceInput({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (wsRef.current) wsRef.current.close()
-      if (mediaRecorderRef.current) mediaRecorderRef.current.stop()
-      if (audioContextRef.current) audioContextRef.current.close()
+      if (conversationRef.current) {
+        conversationRef.current.endSession().catch(() => {})
+      }
     }
   }, [])
 

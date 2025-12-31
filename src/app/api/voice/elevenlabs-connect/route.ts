@@ -21,9 +21,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Get signed URL for WebSocket connection from ElevenLabs
-    // Using the correct endpoint for Conversational AI
+    // This is a GET request with agent_id as query parameter
     const response = await fetch(
-      `https://api.elevenlabs.io/v1/convai/conversation?agent_id=${agentId}`,
+      `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${agentId}`,
       {
         method: 'GET',
         headers: {
@@ -44,18 +44,23 @@ export async function POST(request: NextRequest) {
         )
       }
       
+      if (response.status === 401) {
+        return NextResponse.json(
+          { error: true, message: 'Invalid ElevenLabs API key' },
+          { status: 401 }
+        )
+      }
+      
       return NextResponse.json(
-        { error: true, message: 'Failed to get conversation URL. Check ElevenLabs API key and agent ID.' },
+        { error: true, message: `ElevenLabs error: ${error}` },
         { status: 500 }
       )
     }
 
     const data = await response.json()
 
-    // Return the WebSocket URL for direct connection
     return NextResponse.json({
-      signedUrl: data.signed_url || `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${agentId}`,
-      conversationId: data.conversation_id,
+      signedUrl: data.signed_url,
     })
   } catch (error) {
     console.error('Voice connect error:', error)

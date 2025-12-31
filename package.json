@@ -11,6 +11,7 @@
     "setup:elevenlabs": "node tools/setup-elevenlabs.js"
   },
   "dependencies": {
+    "@11labs/client": "^0.2.0",
     "@supabase/ssr": "^0.1.0",
     "@supabase/supabase-js": "^2.39.0",
     "class-variance-authority": "^0.7.0",
