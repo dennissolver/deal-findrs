@@ -21,41 +21,41 @@ export async function POST(request: NextRequest) {
     }
 
     // Get signed URL for WebSocket connection from ElevenLabs
+    // Using the correct endpoint for Conversational AI
     const response = await fetch(
-      'https://api.elevenlabs.io/v1/convai/conversation/get_signed_url',
+      `https://api.elevenlabs.io/v1/convai/conversation?agent_id=${agentId}`,
       {
-        method: 'POST',
+        method: 'GET',
         headers: {
-          'Content-Type': 'application/json',
           'xi-api-key': ELEVENLABS_API_KEY,
         },
-        body: JSON.stringify({
-          agent_id: agentId,
-          // Pass metadata to be included in webhook calls
-          conversation_config_override: {
-            agent: {
-              custom_llm_extra_body: {
-                metadata,
-              },
-            },
-          },
-        }),
       }
     )
 
     if (!response.ok) {
       const error = await response.text()
       console.error('ElevenLabs API error:', error)
+      
+      // If agent doesn't exist, return helpful message
+      if (response.status === 404) {
+        return NextResponse.json(
+          { error: true, message: 'Agent not found. Create agents at /admin/elevenlabs' },
+          { status: 404 }
+        )
+      }
+      
       return NextResponse.json(
-        { error: true, message: 'Failed to get conversation URL' },
+        { error: true, message: 'Failed to get conversation URL. Check ElevenLabs API key and agent ID.' },
         { status: 500 }
       )
     }
 
     const data = await response.json()
 
+    // Return the WebSocket URL for direct connection
     return NextResponse.json({
-      signedUrl: data.signed_url,
+      signedUrl: data.signed_url || `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${agentId}`,
+      conversationId: data.conversation_id,
     })
   } catch (error) {
     console.error('Voice connect error:', error)

@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Mic, MicOff, Loader2, Volume2, Phone, PhoneOff, AlertCircle } from 'lucide-react'
+import { Mic, MicOff, Loader2, Volume2, Phone, PhoneOff, AlertCircle, Settings } from 'lucide-react'
+import Link from 'next/link'
 
-// Agent IDs from environment
+// Agent IDs from environment - check if they're actually set
 const AGENT_IDS: Record<string, string> = {
   basics: process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_BASICS || '',
   property: process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_PROPERTY || '',
@@ -41,16 +42,18 @@ export function VoiceInput({
 
   const agentId = AGENT_IDS[step]
 
-  // Check if agent is configured
+  // Check if agent is configured on mount
   useEffect(() => {
-    if (!agentId) {
+    // Check if ANY agent is configured (means setup was done)
+    const anyAgentConfigured = Object.values(AGENT_IDS).some(id => id && id.length > 0)
+    if (!anyAgentConfigured) {
       setStatus('not_configured')
     }
-  }, [agentId])
+  }, [])
 
   const startConversation = useCallback(async () => {
     if (!agentId) {
-      setErrorMessage('Voice agent not configured. Add ELEVENLABS_API_KEY and agent IDs to environment.')
+      setErrorMessage('Voice agent not configured for this step.')
       setStatus('not_configured')
       return
     }
@@ -63,7 +66,7 @@ export function VoiceInput({
       // Request microphone permission
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
 
-      // Get signed URL for WebSocket connection
+      // Get connection info from our API
       const response = await fetch('/api/voice/elevenlabs-connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -72,20 +75,19 @@ export function VoiceInput({
           metadata: {
             ...metadata,
             step,
-            contextData,
           }
         }),
       })
 
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.message || 'Failed to connect to voice service')
+      const data = await response.json()
+      
+      if (!response.ok || data.error) {
+        throw new Error(data.message || 'Failed to connect to voice service')
       }
 
-      const { signedUrl } = await response.json()
-
-      // Connect via WebSocket
-      const ws = new WebSocket(signedUrl)
+      // Connect via WebSocket to ElevenLabs
+      const wsUrl = data.signedUrl || `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${agentId}`
+      const ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
       ws.onopen = () => {
@@ -107,17 +109,20 @@ export function VoiceInput({
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data)
-          handleMessage(data)
+          const msg = JSON.parse(event.data)
+          handleMessage(msg)
         } catch {
           // Binary audio data for playback
-          playAudio(event.data)
+          if (event.data instanceof Blob) {
+            playAudio(event.data)
+          }
         }
       }
 
       ws.onerror = () => {
         setStatus('error')
         setErrorMessage('Connection error. Please try again.')
+        stream.getTracks().forEach(track => track.stop())
       }
 
       ws.onclose = () => {
@@ -132,28 +137,32 @@ export function VoiceInput({
       setStatus('error')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to start voice input')
     }
-  }, [agentId, step, metadata, contextData])
+  }, [agentId, step, metadata])
 
   const handleMessage = useCallback((data: any) => {
     switch (data.type) {
       case 'transcript':
-        if (data.role === 'agent') {
+      case 'agent_response':
+        if (data.text) {
           setTranscript(prev => [...prev, { role: 'agent', text: data.text }])
-        } else if (data.role === 'user' && data.text) {
+        }
+        break
+
+      case 'user_transcript':
+        if (data.text) {
           setTranscript(prev => [...prev, { role: 'user', text: data.text }])
         }
         break
 
       case 'field_extracted':
-        // Agent extracted a field value
         if (data.field && data.value !== undefined) {
           onFieldExtracted?.(data.field, data.value)
         }
         break
 
       case 'conversation_complete':
-        // Agent finished collecting data
-        onConversationComplete?.(data.extracted_data)
+      case 'conversation_ended':
+        onConversationComplete?.(data.extracted_data || data)
         break
 
       case 'error':
@@ -207,14 +216,23 @@ export function VoiceInput({
   if (status === 'not_configured') {
     return (
       <div className="bg-amber-50 border-b border-amber-200 px-6 py-4">
-        <div className="flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-amber-600" />
-          <div>
-            <p className="text-amber-800 font-medium">Voice Assistant Not Configured</p>
-            <p className="text-amber-600 text-sm">
-              Set up ElevenLabs agents at <a href="/admin/elevenlabs" className="underline">/admin/elevenlabs</a>
-            </p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600" />
+            <div>
+              <p className="text-amber-800 font-medium">Voice Assistant Not Configured</p>
+              <p className="text-amber-600 text-sm">
+                Set up ElevenLabs agents to enable voice input
+              </p>
+            </div>
           </div>
+          <Link 
+            href="/admin/elevenlabs" 
+            className="flex items-center gap-2 px-3 py-2 bg-amber-100 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-200"
+          >
+            <Settings className="w-4 h-4" />
+            Setup
+          </Link>
         </div>
       </div>
     )
