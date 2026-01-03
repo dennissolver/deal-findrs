@@ -36,7 +36,7 @@ export async function PUT(
       city: 'city',
       state: 'state',
       postcode: 'postcode',
-      
+
       // Property details
       propertySize: 'property_size',
       propertySizeUnit: 'property_size_unit',
@@ -49,19 +49,19 @@ export async function PUT(
       existingStructures: 'existing_structures',
       siteFeatures: 'site_features',
       siteConstraints: 'site_constraints',
-      
+
       // Landowner info
       landownerName: 'landowner_name',
       landownerPhone: 'landowner_phone',
       landownerEmail: 'landowner_email',
       landownerCompany: 'landowner_company',
       landownerNotes: 'landowner_notes',
-      
+
       // Source info
       source: 'source',
       sourceContact: 'source_contact',
       sourceNotes: 'source_notes',
-      
+
       // De-risk factors
       deriskDaApproved: 'derisk_da_approved',
       deriskVendorFinance: 'derisk_vendor_finance',
@@ -74,7 +74,7 @@ export async function PUT(
       deriskPmName: 'derisk_pm_name',
       deriskClearTitle: 'derisk_clear_title',
       deriskGrowthCorridor: 'derisk_growth_corridor',
-      
+
       // Risk factors
       riskPreviousDisputes: 'risk_previous_disputes',
       riskDisputeDetails: 'risk_dispute_details',
@@ -83,7 +83,7 @@ export async function PUT(
       riskHeritageOverlay: 'risk_heritage_overlay',
       riskHeritageDetails: 'risk_heritage_details',
       riskOther: 'risk_other',
-      
+
       // Financial
       landPurchasePrice: 'land_purchase_price',
       infrastructureCosts: 'infrastructure_costs',
@@ -94,19 +94,19 @@ export async function PUT(
       totalProjectCost: 'total_project_cost',
       avgSalePrice: 'avg_sale_price',
       totalRevenue: 'total_revenue',
-      
+
       // Timeframe
       timeframeMonths: 'timeframe_months',
       targetStartDate: 'target_start_date',
       targetCompletionDate: 'target_completion_date',
       timeSensitiveFactors: 'time_sensitive_factors',
-      
+
       // Development info
       developmentType: 'development_type',
       developmentGoals: 'development_goals',
       designPreferences: 'design_preferences',
       briefDescription: 'brief_description',
-      
+
       // Notes
       notes: 'notes',
       tags: 'tags',
@@ -128,12 +128,12 @@ export async function PUT(
           .select('total_project_cost, total_revenue')
           .eq('id', opportunityId)
           .single()
-        
+
         if (current) {
           const cost = body.totalProjectCost ?? current.total_project_cost ?? 0
           const revenue = body.totalRevenue ?? current.total_revenue ?? 0
           const grossMargin = revenue - cost
-          const grossMarginPercent = revenue > 0 
+          const grossMarginPercent = revenue > 0
             ? ((grossMargin / revenue) * 100)
             : 0
           updateData.gross_margin_dollars = grossMargin
@@ -141,7 +141,7 @@ export async function PUT(
         }
       } else {
         const grossMargin = body.totalRevenue - body.totalProjectCost
-        const grossMarginPercent = body.totalRevenue > 0 
+        const grossMarginPercent = body.totalRevenue > 0
           ? ((grossMargin / body.totalRevenue) * 100)
           : 0
         updateData.gross_margin_dollars = grossMargin
@@ -164,18 +164,20 @@ export async function PUT(
 
     // Log activity if userId provided
     if (body.userId) {
-      await supabase.from('activity_log').insert({
-        company_id: opportunity.company_id,
-        user_id: body.userId,
-        action: 'opportunity_updated',
-        entity_type: 'opportunity',
-        entity_id: opportunityId,
-        details: { 
-          updated_fields: Object.keys(updateData).filter(k => k !== 'updated_at'),
-        },
-      }).catch(err => {
+      try {
+        await supabase.from('activity_log').insert({
+          company_id: opportunity.company_id,
+          user_id: body.userId,
+          action: 'opportunity_updated',
+          entity_type: 'opportunity',
+          entity_id: opportunityId,
+          details: {
+            updated_fields: Object.keys(updateData).filter(k => k !== 'updated_at'),
+          },
+        })
+      } catch (err) {
         console.warn('Activity log error:', err)
-      })
+      }
     }
 
     return NextResponse.json({
@@ -230,20 +232,22 @@ export async function PATCH(
 
     // Log activity
     if (userId && opportunity.company_id) {
-      await supabase.from('activity_log').insert({
-        company_id: opportunity.company_id,
-        user_id: userId,
-        action: 'status_changed',
-        entity_type: 'opportunity',
-        entity_id: opportunityId,
-        details: { 
-          new_status: status, 
-          note,
-          previous_status: currentOpp?.status 
-        },
-      }).catch(err => {
+      try {
+        await supabase.from('activity_log').insert({
+          company_id: opportunity.company_id,
+          user_id: userId,
+          action: 'status_changed',
+          entity_type: 'opportunity',
+          entity_id: opportunityId,
+          details: {
+            new_status: status,
+            note,
+            previous_status: currentOpp?.status
+          },
+        })
+      } catch (err) {
         console.warn('Activity log error:', err)
-      })
+      }
     }
 
     return NextResponse.json({
