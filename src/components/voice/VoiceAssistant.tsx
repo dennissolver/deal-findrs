@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Mic, MicOff, Volume2, VolumeX, Loader2, X, Check } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Loader2, X, Check, AlertCircle } from 'lucide-react';
 import { useVoiceAssistant } from '@/lib/voice/useVoiceAssistant';
 import { VoiceContext, ExtractedField, FIELD_LABELS, INITIAL_PROMPTS } from '@/lib/voice/prompts';
 
 interface VoiceAssistantProps {
   context: VoiceContext;
   contextData?: Record<string, any>;
-  customInitialPrompt?: string;  // Override default prompt for this context
+  customInitialPrompt?: string;
   onFieldExtracted?: (field: string, value: any) => void;
   onClose?: () => void;
   className?: string;
@@ -31,8 +31,9 @@ export function VoiceAssistant({
 }: VoiceAssistantProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isProcessingAI, setIsProcessingAI] = useState(false);
-  const [hasSpokenInitial, setHasSpokenInitial] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false); // NEW: Track if user has started
   const [lastExtracted, setLastExtracted] = useState<ExtractedField[]>([]);
+  const [permissionDenied, setPermissionDenied] = useState(false); // NEW: Track permission state
   
   const {
     isListening,
@@ -56,7 +57,6 @@ export function VoiceAssistant({
   async function handleUserSpeech(transcript: string) {
     if (!transcript.trim()) return;
 
-    // Add user message
     const userMessage: Message = {
       role: 'user',
       content: transcript,
@@ -64,12 +64,10 @@ export function VoiceAssistant({
     };
     setMessages(prev => [...prev, userMessage]);
 
-    // Stop listening while processing
     stopListening();
     setIsProcessingAI(true);
 
     try {
-      // Call AI chat endpoint with extraction
       const response = await fetch('/api/voice/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -87,11 +85,9 @@ export function VoiceAssistant({
 
       const data = await response.json();
       
-      // Extract fields and update form
       if (data.extractedFields && data.extractedFields.length > 0) {
         setLastExtracted(data.extractedFields);
         
-        // Call back with each extracted field
         for (const field of data.extractedFields) {
           if (onFieldExtracted && field.confidence !== 'low') {
             onFieldExtracted(field.field, field.value);
@@ -99,7 +95,6 @@ export function VoiceAssistant({
         }
       }
       
-      // Add assistant message
       const assistantMessage: Message = {
         role: 'assistant',
         content: data.message,
@@ -108,7 +103,6 @@ export function VoiceAssistant({
       };
       setMessages(prev => [...prev, assistantMessage]);
 
-      // Speak the response
       await speak(data.message);
 
     } catch (err) {
@@ -125,23 +119,32 @@ export function VoiceAssistant({
     }
   }
 
-  // Speak initial prompt on mount
-  useEffect(() => {
-    if (!hasSpokenInitial && isSupported) {
-      // Use custom prompt if provided, otherwise use default for context
+  // NEW: Handle initial start with user gesture
+  const handleStart = useCallback(async () => {
+    // First, check/request microphone permission
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(track => track.stop()); // Release immediately
+      
+      setPermissionDenied(false);
+      setHasStarted(true);
+      
+      // Now we can safely speak the initial prompt (user has interacted)
       const initialPrompt = customInitialPrompt || INITIAL_PROMPTS[context];
       if (initialPrompt) {
-        setHasSpokenInitial(true);
         setMessages([{
           role: 'assistant',
           content: initialPrompt,
           timestamp: new Date(),
         }]);
         // Small delay before speaking
-        setTimeout(() => speak(initialPrompt), 500);
+        setTimeout(() => speak(initialPrompt), 300);
       }
+    } catch (err) {
+      console.error('Microphone permission error:', err);
+      setPermissionDenied(true);
     }
-  }, [hasSpokenInitial, isSupported, context, customInitialPrompt, speak]);
+  }, [context, customInitialPrompt, speak]);
 
   // Toggle listening
   const toggleListening = useCallback(() => {
@@ -159,19 +162,79 @@ export function VoiceAssistant({
   // Handle close
   const handleClose = useCallback(() => {
     reset();
+    setHasStarted(false);
+    setMessages([]);
     onClose?.();
   }, [reset, onClose]);
 
+  // Browser not supported
   if (!isSupported) {
     return (
       <div className={`bg-amber-50 border border-amber-200 rounded-xl p-4 ${className}`}>
-        <p className="text-amber-800 text-sm">
-          🎙️ Voice requires Chrome, Edge, or Safari with microphone access.
+        <p className="text-amber-800 text-sm flex items-center gap-2">
+          <AlertCircle className="w-4 h-4" />
+          Voice requires Chrome, Edge, or Safari with microphone access.
         </p>
       </div>
     );
   }
 
+  // Permission denied state
+  if (permissionDenied) {
+    return (
+      <div className={`bg-red-50 border border-red-200 rounded-xl p-4 ${className}`}>
+        <div className="flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-red-800 font-medium">Microphone Access Denied</p>
+            <p className="text-red-600 text-sm mt-1">
+              To use the Voice Assistant, please allow microphone access in your browser settings.
+            </p>
+            <div className="mt-3 space-y-2 text-sm text-red-700">
+              <p><strong>On mobile:</strong> Check your browser settings → Site Settings → Microphone</p>
+              <p><strong>On desktop:</strong> Click the lock/info icon in the address bar → Allow microphone</p>
+            </div>
+            <button
+              onClick={() => {
+                setPermissionDenied(false);
+                handleStart();
+              }}
+              className="mt-3 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm font-medium"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // NEW: Initial "tap to start" state - requires user gesture
+  if (!hasStarted) {
+    return (
+      <div className={`bg-gradient-to-r from-violet-600 to-indigo-600 rounded-xl overflow-hidden ${className}`}>
+        <button
+          onClick={handleStart}
+          className="w-full px-6 py-5 flex items-center justify-between hover:from-violet-500 hover:to-indigo-500 transition-all group"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center group-hover:bg-white/30 transition-colors">
+              <Mic className="w-6 h-6 text-white" />
+            </div>
+            <div className="text-left">
+              <p className="text-white font-semibold">🎙️ Voice Assistant</p>
+              <p className="text-white/70 text-sm">Tap to start - I'll help you set up your assessment criteria</p>
+            </div>
+          </div>
+          <div className="px-4 py-2 bg-white/20 rounded-lg text-white text-sm font-medium group-hover:bg-white/30 transition-colors">
+            Start
+          </div>
+        </button>
+      </div>
+    );
+  }
+
+  // Active voice assistant state
   return (
     <div className={`bg-gradient-to-r from-violet-600 to-indigo-600 rounded-xl overflow-hidden ${className}`}>
       {/* Main Voice Bar */}
@@ -204,7 +267,6 @@ export function VoiceAssistant({
               {isListening ? '🔴 Listening...' : isSpeaking ? '🔊 Speaking...' : '🎙️ Voice Assistant'}
             </p>
             
-            {/* Show interim transcript while listening */}
             {isListening && interimTranscript ? (
               <p className="text-white/90 italic text-sm">"{interimTranscript}"</p>
             ) : messages.length > 0 ? (
@@ -212,13 +274,12 @@ export function VoiceAssistant({
                 {messages[messages.length - 1].content}
               </p>
             ) : (
-              <p className="text-white/70 text-sm">Click the mic button to start talking</p>
+              <p className="text-white/70 text-sm">Tap the mic button to start talking</p>
             )}
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Show extracted fields indicator */}
           {lastExtracted.length > 0 && (
             <div className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500/30 rounded-lg">
               <Check className="w-4 h-4 text-emerald-300" />
@@ -279,8 +340,9 @@ export function VoiceAssistant({
 
       {/* Error Display */}
       {error && (
-        <div className="px-6 py-2 bg-red-500/30 text-white text-sm">
-          ⚠️ {error}
+        <div className="px-6 py-2 bg-red-500/30 text-white text-sm flex items-center gap-2">
+          <AlertCircle className="w-4 h-4" />
+          {error}
         </div>
       )}
     </div>

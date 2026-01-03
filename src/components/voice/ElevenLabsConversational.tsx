@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Mic, MicOff, Loader2, Phone, PhoneOff, Volume2 } from 'lucide-react'
+import { Mic, MicOff, Loader2, Phone, PhoneOff, Volume2, AlertCircle } from 'lucide-react'
 
 // Agent IDs - these should come from environment variables
 const AGENT_IDS = {
@@ -30,10 +30,6 @@ interface ElevenLabsConversationalProps {
   className?: string
 }
 
-// ElevenLabs Conversational AI Widget
-// Uses their embedded widget approach for simplicity
-// For more control, use @11labs/react package
-
 export function ElevenLabsConversational({
   agentType,
   metadata,
@@ -41,29 +37,41 @@ export function ElevenLabsConversational({
   onError,
   className = '',
 }: ElevenLabsConversationalProps) {
-  const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'error' | 'permission_denied'>('idle')
   const [isMuted, setIsMuted] = useState(false)
   const [transcript, setTranscript] = useState<Array<{ role: string; text: string }>>([])
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const conversationRef = useRef<any>(null)
 
   const agentId = AGENT_IDS[agentType]
 
   const startConversation = useCallback(async () => {
     if (!agentId) {
+      setErrorMessage(`Agent not configured for ${agentType}. Please contact support.`)
       onError?.(new Error(`Agent ID not configured for ${agentType}`))
+      setStatus('error')
       return
     }
 
     setStatus('connecting')
     setTranscript([])
+    setErrorMessage(null)
 
     try {
-      // Check for microphone permission
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      stream.getTracks().forEach(track => track.stop())
+      // First, explicitly request microphone permission
+      // This ensures we have user gesture before starting
+      let stream: MediaStream
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        stream.getTracks().forEach(track => track.stop())
+      } catch (micError) {
+        console.error('Microphone permission denied:', micError)
+        setStatus('permission_denied')
+        setErrorMessage('Microphone access is required for voice conversations.')
+        return
+      }
 
       // Initialize ElevenLabs conversation
-      // This uses the ElevenLabs Conversational AI API
       const response = await fetch('https://api.elevenlabs.io/v1/convai/conversation/get_signed_url', {
         method: 'POST',
         headers: {
@@ -76,7 +84,8 @@ export function ElevenLabsConversational({
       })
 
       if (!response.ok) {
-        throw new Error('Failed to get conversation URL')
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.message || 'Failed to get conversation URL')
       }
 
       const { signed_url } = await response.json()
@@ -97,42 +106,57 @@ export function ElevenLabsConversational({
       }
 
       ws.onmessage = (event) => {
-        const data = JSON.parse(event.data)
-        
-        switch (data.type) {
-          case 'agent_response':
-            setTranscript(prev => [...prev, { role: 'agent', text: data.text }])
-            break
-          case 'user_transcript':
-            if (data.text) {
-              setTranscript(prev => [...prev, { role: 'user', text: data.text }])
-            }
-            break
-          case 'conversation_ended':
-            setStatus('idle')
-            onConversationEnd?.(data)
-            break
-          case 'error':
-            setStatus('error')
-            onError?.(new Error(data.message))
-            break
+        try {
+          const data = JSON.parse(event.data)
+          
+          switch (data.type) {
+            case 'agent_response':
+              setTranscript(prev => [...prev, { role: 'agent', text: data.text }])
+              break
+            case 'user_transcript':
+              if (data.text) {
+                setTranscript(prev => [...prev, { role: 'user', text: data.text }])
+              }
+              break
+            case 'conversation_ended':
+              setStatus('idle')
+              onConversationEnd?.(data)
+              break
+            case 'error':
+              setStatus('error')
+              setErrorMessage(data.message || 'An error occurred')
+              onError?.(new Error(data.message))
+              break
+          }
+        } catch (parseError) {
+          console.error('Failed to parse message:', parseError)
         }
       }
 
       ws.onerror = (error) => {
+        console.error('WebSocket error:', error)
         setStatus('error')
+        setErrorMessage('Connection error. Please check your internet and try again.')
         onError?.(new Error('WebSocket error'))
       }
 
-      ws.onclose = () => {
-        setStatus('idle')
+      ws.onclose = (event) => {
+        if (status === 'connected') {
+          setStatus('idle')
+        }
+        // Clean close codes (1000, 1001) are normal
+        if (event.code !== 1000 && event.code !== 1001) {
+          console.warn('WebSocket closed unexpectedly:', event.code, event.reason)
+        }
       }
 
     } catch (error) {
+      console.error('Conversation start error:', error)
       setStatus('error')
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to start conversation')
       onError?.(error instanceof Error ? error : new Error('Unknown error'))
     }
-  }, [agentId, agentType, metadata, onConversationEnd, onError])
+  }, [agentId, agentType, metadata, onConversationEnd, onError, status])
 
   const endConversation = useCallback(() => {
     if (conversationRef.current) {
@@ -145,6 +169,11 @@ export function ElevenLabsConversational({
   const toggleMute = useCallback(() => {
     setIsMuted(prev => !prev)
     // In a real implementation, you'd mute the audio stream
+  }, [])
+
+  const retryPermission = useCallback(() => {
+    setStatus('idle')
+    setErrorMessage(null)
   }, [])
 
   // Cleanup on unmount
@@ -160,7 +189,37 @@ export function ElevenLabsConversational({
     idle: 'bg-gray-100 text-gray-600 hover:bg-gray-200',
     connecting: 'bg-amber-100 text-amber-700',
     connected: 'bg-emerald-500 text-white',
-    error: 'bg-red-100 text-red-700',
+    error: 'bg-red-100 text-red-700 hover:bg-red-200',
+    permission_denied: 'bg-red-100 text-red-700',
+  }
+
+  // Permission denied state
+  if (status === 'permission_denied') {
+    return (
+      <div className={`${className}`}>
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-red-800 font-medium">Microphone Access Required</p>
+              <p className="text-red-600 text-sm mt-1">
+                {errorMessage || 'Please allow microphone access to use the voice assistant.'}
+              </p>
+              <div className="mt-3 space-y-1 text-sm text-red-700">
+                <p><strong>Mobile:</strong> Settings → Site Settings → Microphone → Allow</p>
+                <p><strong>Desktop:</strong> Click the lock icon in the address bar</p>
+              </div>
+              <button
+                onClick={retryPermission}
+                className="mt-3 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm font-medium"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -248,18 +307,17 @@ export function ElevenLabsConversational({
       )}
 
       {/* Error message */}
-      {status === 'error' && (
-        <p className="mt-2 text-sm text-red-600">
-          Connection error. Please check your microphone and try again.
-        </p>
+      {status === 'error' && errorMessage && (
+        <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-red-600">{errorMessage}</p>
+        </div>
       )}
     </div>
   )
 }
 
 // Alternative: Use ElevenLabs embedded widget
-// This is simpler but less customizable
-
 export function ElevenLabsWidget({
   agentType,
   metadata,
@@ -291,7 +349,9 @@ export function ElevenLabsWidget({
     }
 
     return () => {
-      document.body.removeChild(script)
+      if (document.body.contains(script)) {
+        document.body.removeChild(script)
+      }
     }
   }, [agentId, metadata])
 
@@ -337,9 +397,9 @@ export function VoiceAssistantButton({
               <h2 className="text-xl font-bold text-gray-900">Voice Assistant</h2>
               <button
                 onClick={() => setIsOpen(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
               >
-                ✕
+                ×
               </button>
             </div>
             

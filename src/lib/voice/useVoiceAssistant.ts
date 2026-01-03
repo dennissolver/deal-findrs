@@ -36,6 +36,7 @@ export function useVoiceAssistant(
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasUserInteracted, setHasUserInteracted] = useState(false); // NEW: Track user interaction
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -57,7 +58,30 @@ export function useVoiceAssistant(
       }
     },
     onError: (err) => {
-      setError(`Speech recognition error: ${err}`);
+      // Provide user-friendly error messages
+      let errorMessage = 'Speech recognition error';
+      
+      switch (err) {
+        case 'not-allowed':
+          errorMessage = 'Microphone access denied. Please allow microphone access and try again.';
+          break;
+        case 'no-speech':
+          errorMessage = 'No speech detected. Please try speaking again.';
+          break;
+        case 'audio-capture':
+          errorMessage = 'No microphone found. Please connect a microphone.';
+          break;
+        case 'network':
+          errorMessage = 'Network error. Please check your connection.';
+          break;
+        case 'aborted':
+          // Don't show error for user-initiated abort
+          return;
+        default:
+          errorMessage = `Speech recognition error: ${err}`;
+      }
+      
+      setError(errorMessage);
     },
   });
 
@@ -68,6 +92,7 @@ export function useVoiceAssistant(
     setIsSpeaking(true);
     setIsProcessing(true);
     setError(null);
+    setHasUserInteracted(true); // Mark that user has interacted
     onAssistantStart?.();
 
     // Stop listening while speaking
@@ -84,7 +109,7 @@ export function useVoiceAssistant(
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'TTS request failed');
       }
 
@@ -95,6 +120,7 @@ export function useVoiceAssistant(
       // Play audio
       if (audioRef.current) {
         audioRef.current.pause();
+        audioRef.current = null;
       }
 
       audioRef.current = new Audio(audioUrl);
@@ -105,26 +131,57 @@ export function useVoiceAssistant(
         URL.revokeObjectURL(audioUrl);
         onAssistantEnd?.();
         
-        // Auto-start listening after assistant finishes
-        if (autoListen && isSupported) {
-          setTimeout(() => startRecognition(), 300);
+        // Only auto-start listening if:
+        // 1. autoListen is enabled
+        // 2. Browser supports speech recognition
+        // 3. User has already interacted (crucial for mobile)
+        if (autoListen && isSupported && hasUserInteracted) {
+          // Use a slightly longer delay for mobile browsers
+          setTimeout(() => {
+            try {
+              startRecognition();
+            } catch (err) {
+              console.warn('Could not auto-start listening:', err);
+              // Don't set error - user can manually tap to listen
+            }
+          }, 500);
         }
       };
 
-      audioRef.current.onerror = () => {
+      audioRef.current.onerror = (e) => {
         setIsSpeaking(false);
-        setError('Audio playback failed');
+        setIsProcessing(false);
+        setError('Audio playback failed. Please try again.');
         URL.revokeObjectURL(audioUrl);
+        console.error('Audio playback error:', e);
       };
 
-      await audioRef.current.play();
+      // Try to play - may fail on mobile without user gesture
+      try {
+        await audioRef.current.play();
+      } catch (playError) {
+        // If autoplay fails, we need user interaction
+        setIsSpeaking(false);
+        setIsProcessing(false);
+        
+        if ((playError as Error).name === 'NotAllowedError') {
+          setError('Tap the mic button to hear the response');
+        } else {
+          setError('Audio playback failed');
+        }
+        
+        URL.revokeObjectURL(audioUrl);
+        console.warn('Audio play failed:', playError);
+      }
     } catch (err) {
       setIsSpeaking(false);
       setIsProcessing(false);
-      setError(err instanceof Error ? err.message : 'TTS failed');
+      
+      const errorMessage = err instanceof Error ? err.message : 'TTS failed';
+      setError(errorMessage);
       console.error('TTS error:', err);
     }
-  }, [isListening, stopRecognition, onAssistantStart, onAssistantEnd, autoListen, isSupported, startRecognition]);
+  }, [isListening, stopRecognition, onAssistantStart, onAssistantEnd, autoListen, isSupported, hasUserInteracted, startRecognition]);
 
   const stopSpeaking = useCallback(() => {
     if (audioRef.current) {
@@ -135,11 +192,20 @@ export function useVoiceAssistant(
   }, []);
 
   const startListening = useCallback(() => {
+    setHasUserInteracted(true); // Mark user interaction
+    setError(null); // Clear any previous errors
+    
     // Stop speaking if currently speaking
     if (isSpeaking) {
       stopSpeaking();
     }
-    startRecognition();
+    
+    try {
+      startRecognition();
+    } catch (err) {
+      setError('Could not start listening. Please check microphone permissions.');
+      console.error('Start listening error:', err);
+    }
   }, [isSpeaking, stopSpeaking, startRecognition]);
 
   const stopListening = useCallback(() => {
@@ -151,6 +217,7 @@ export function useVoiceAssistant(
     stopRecognition();
     resetTranscript();
     setError(null);
+    setHasUserInteracted(false);
   }, [stopSpeaking, stopRecognition, resetTranscript]);
 
   return {
